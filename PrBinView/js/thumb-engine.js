@@ -86,6 +86,78 @@
     return Number.isFinite(n) ? Math.round(n * 1000) / 1000 : 0;
   }
 
+  function stripParens(str) {
+    var out = '';
+    var depth = 0;
+    for (var i = 0; i < str.length; i++) {
+      var ch = str.charAt(i);
+      if (ch === '(') { depth += 1; continue; }
+      if (ch === ')') { if (depth > 0) depth -= 1; continue; }
+      if (depth === 0) out += ch;
+    }
+    return out;
+  }
+
+  /* Parse media container, duration, video/audio codec, resolution, fps & audio info from `ffmpeg -i` stderr (no ffprobe.exe required!) */
+  function parseFfmpegInfo(text) {
+    var info = {
+      duration: 0, width: 0, height: 0, fps: 0,
+      codec: '', vCodec: '', pixFmt: '',
+      audioCodec: '', aCodec: '', channels: 0, aChannels: 0,
+      sampleRate: 0, aRate: 0, container: ''
+    };
+    var s = String(text || '');
+    if (!s) return info;
+
+    var mIn = s.match(/Input\s+#0,\s*([^\r\n]+?),\s*from\b/i);
+    if (mIn && mIn[1]) info.container = mIn[1].trim();
+
+    var mDur = s.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/i);
+    if (mDur) {
+      info.duration = Number(mDur[1]) * 3600 + Number(mDur[2]) * 60 + Number(mDur[3]);
+    }
+
+    var mVid = s.match(/Stream\s+#\d+:\d+[^\r\n]*?:\s*Video:\s*([^\r\n]+)/i);
+    if (mVid && mVid[1]) {
+      var vClean = stripParens(mVid[1]);
+      var vParts = vClean.split(',').map(function (p) { return p.trim(); }).filter(Boolean);
+      if (vParts[0]) {
+        var cm = vParts[0].match(/^([a-z0-9_+-]+)/i);
+        if (cm) { info.codec = cm[1]; info.vCodec = cm[1]; }
+      }
+      if (vParts[1]) {
+        var pm = vParts[1].match(/^([a-z0-9_]+)/i);
+        if (pm && !/^\d+x\d+$/i.test(pm[1])) info.pixFmt = pm[1];
+      }
+      var mDim = vClean.match(/\b(\d{2,5})x(\d{2,5})\b/);
+      if (mDim) {
+        info.width = Number(mDim[1]) || 0;
+        info.height = Number(mDim[2]) || 0;
+      }
+      var mFps = vClean.match(/(\d+(?:\.\d+)?)\s*(?:fps|tbr)\b/i);
+      if (mFps) info.fps = parseFps(mFps[1]);
+    }
+
+    var mAud = s.match(/Stream\s+#\d+:\d+[^\r\n]*?:\s*Audio:\s*([^\r\n]+)/i);
+    if (mAud && mAud[1]) {
+      var aClean = stripParens(mAud[1]);
+      var acm = aClean.match(/^([a-z0-9_+-]+)/i);
+      if (acm) { info.audioCodec = acm[1]; info.aCodec = acm[1]; }
+      var mHz = aClean.match(/(\d+)\s*Hz\b/i);
+      if (mHz) { info.sampleRate = Number(mHz[1]) || 0; info.aRate = info.sampleRate; }
+      var mCh = aClean.match(/\b(\d+)\s*channels?\b/i);
+      if (mCh) info.channels = Number(mCh[1]) || 0;
+      else if (/\bmono\b/i.test(aClean)) info.channels = 1;
+      else if (/\bstereo\b/i.test(aClean)) info.channels = 2;
+      else if (/\bquad\b/i.test(aClean)) info.channels = 4;
+      else if (/\b5\.1\b/i.test(aClean)) info.channels = 6;
+      else if (/\b7\.1\b/i.test(aClean)) info.channels = 8;
+      info.aChannels = info.channels;
+    }
+
+    return info;
+  }
+
   /* Pure Node.js fast extractor for Adobe Illustrator / EPS embedded XMP JPEG thumbnails (<3ms) */
   function extractXmpJpegFromText(text) {
     if (!text) return null;
@@ -148,6 +220,7 @@
       this.cacheDir = '';
       this.ffmpegBin = '';
       this.ffprobeBin = '';
+      this.ffprobeReady = false;
       this.ffmpegChecked = false;
       this.ffmpegReady = false;
 
@@ -202,13 +275,15 @@
           await this._exec(bin, ['-version'], 3500);
           this.ffmpegBin = bin;
           var dir = this.path.dirname(bin);
-          if (typeof process !== 'undefined' && process.env && process.env.PRBINVIEW_FFPROBE) {
-            this.ffprobeBin = process.env.PRBINVIEW_FFPROBE;
+          if (proc && proc.env && proc.env.PRBINVIEW_FFPROBE) {
+            this.ffprobeBin = proc.env.PRBINVIEW_FFPROBE;
           } else if (dir && dir !== '.') {
-            this.ffprobeBin = this.path.join(dir, 'ffprobe' + exe);
+            var siblingProbe = this.path.join(dir, 'ffprobe' + exe);
+            this.ffprobeBin = this.fs.existsSync(siblingProbe) ? siblingProbe : '';
           } else {
             this.ffprobeBin = 'ffprobe' + exe;
           }
+          this.ffprobeReady = !!this.ffprobeBin;
           this.ffmpegReady = true;
           return true;
         } catch (_) {}
@@ -227,6 +302,20 @@
           function (err, stdout, stderr) {
             if (err) reject(new Error(String(stderr || err.message || err).slice(0, 300)));
             else resolve(stdout);
+          }
+        );
+      });
+    }
+
+    _execCapture(bin, args, timeoutMs) {
+      var self = this;
+      return new Promise(function (resolve) {
+        self.cp.execFile(
+          bin,
+          args,
+          { windowsHide: true, timeout: timeoutMs || 10000, maxBuffer: 2 * 1024 * 1024 },
+          function (err, stdout, stderr) {
+            resolve({ err: err || null, stdout: String(stdout || ''), stderr: String(stderr || '') });
           }
         );
       });
@@ -615,15 +704,21 @@
       if (!filePath) return null;
       var k = U.normKey(filePath);
       if (this.probeCache.has(k)) return this.probeCache.get(k);
-      var base = { bytes: 0, duration: 0, width: 0, height: 0, fps: 0, codec: '', pixFmt: '', colorSpace: '', audioCodec: '', channels: 0, sampleRate: 0, container: '' };
+      var base = {
+        bytes: 0, size: 0, duration: 0, width: 0, height: 0, fps: 0,
+        codec: '', vCodec: '', pixFmt: '', colorSpace: '',
+        audioCodec: '', aCodec: '', channels: 0, aChannels: 0,
+        sampleRate: 0, aRate: 0, container: ''
+      };
       if (this.fs) {
         try {
           var st = this.fs.statSync(filePath);
-          if (st.isFile()) base.bytes = st.size;
+          if (st.isFile()) { base.bytes = st.size; base.size = st.size; }
         } catch (_) {}
       }
       if (!this.ffmpegChecked) await this.init();
-      if (this.ffmpegReady && this.ffprobeBin) {
+      var probed = false;
+      if (this.ffmpegReady && this.ffprobeReady && this.ffprobeBin) {
         try {
           var raw = await this._exec(this.ffprobeBin, [
             '-v', 'error',
@@ -638,16 +733,43 @@
           var a = streams.find(function (s) { return s.codec_type === 'audio'; }) || {};
           base.duration = Number(v.duration) || Number(fmt.duration) || 0;
           base.bytes = Number(fmt.size) || base.bytes;
+          base.size = base.bytes;
           base.container = fmt.format_name || '';
           base.width = Number(v.width) || 0;
           base.height = Number(v.height) || 0;
           base.fps = parseFps(v.avg_frame_rate) || parseFps(v.r_frame_rate);
           base.codec = v.codec_name || '';
+          base.vCodec = base.codec;
           base.pixFmt = v.pix_fmt || '';
           base.colorSpace = v.color_space || '';
           base.audioCodec = a.codec_name || '';
+          base.aCodec = base.audioCodec;
           base.channels = Number(a.channels) || 0;
+          base.aChannels = base.channels;
           base.sampleRate = Number(a.sample_rate) || 0;
+          base.aRate = base.sampleRate;
+          probed = true;
+        } catch (err) {
+          if (err && /ENOENT|not recognized|cannot find/i.test(String(err.message || ''))) {
+            this.ffprobeReady = false;
+          }
+        }
+      }
+      /* Single-binary fallback: probe directly with `ffmpeg -i` when ffprobe.exe is not bundled */
+      if (!probed && this.ffmpegReady && this.ffmpegBin && this.cp) {
+        try {
+          var cap = await this._execCapture(this.ffmpegBin, ['-hide_banner', '-nostdin', '-i', filePath], 10000);
+          var fInfo = parseFfmpegInfo(cap.stderr || cap.stdout);
+          if (fInfo.duration > 0) base.duration = fInfo.duration;
+          if (fInfo.width > 0) base.width = fInfo.width;
+          if (fInfo.height > 0) base.height = fInfo.height;
+          if (fInfo.fps > 0) base.fps = fInfo.fps;
+          if (fInfo.codec) { base.codec = fInfo.codec; base.vCodec = fInfo.codec; }
+          if (fInfo.pixFmt) base.pixFmt = fInfo.pixFmt;
+          if (fInfo.container) base.container = fInfo.container;
+          if (fInfo.audioCodec) { base.audioCodec = fInfo.audioCodec; base.aCodec = fInfo.audioCodec; }
+          if (fInfo.channels > 0) { base.channels = fInfo.channels; base.aChannels = fInfo.channels; }
+          if (fInfo.sampleRate > 0) { base.sampleRate = fInfo.sampleRate; base.aRate = fInfo.sampleRate; }
         } catch (_) {}
       }
       this.probeCache.set(k, base);
@@ -750,6 +872,7 @@
     makeHashKey: makeHashKey,
     buildThumbArgs: buildThumbArgs,
     buildSpriteArgs: buildSpriteArgs,
+    parseFfmpegInfo: parseFfmpegInfo,
     extractXmpJpegFromText: extractXmpJpegFromText,
     extractXmpThumbnail: extractXmpThumbnail
   };

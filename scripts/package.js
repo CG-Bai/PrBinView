@@ -9,9 +9,6 @@ var PKG = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 var VERSION = PKG.version || '1.0.0';
 var PLUGIN_SRC = path.join(ROOT, 'PrBinView');
 var DIST_DIR = path.join(ROOT, 'dist');
-var BUNDLE_NAME = 'PrBinView-v' + VERSION;
-var STAGE_DIR = path.join(DIST_DIR, BUNDLE_NAME);
-var ZIP_PATH = path.join(DIST_DIR, BUNDLE_NAME + '.zip');
 
 var WIN_INSTALL_CMD = [
   '@echo off',
@@ -33,8 +30,10 @@ var WIN_INSTALL_CMD = [
   '',
   'set "EXT_BASE=%APPDATA%\\Adobe\\CEP\\extensions"',
   'set "TARGET=%EXT_BASE%\\PrBinView"',
+  'set "LEGACY=%EXT_BASE%\\com.antigravity.prbinview"',
   '',
   'if not exist "%EXT_BASE%" mkdir "%EXT_BASE%"',
+  'if exist "%LEGACY%" rmdir /s /q "%LEGACY%"',
   'if exist "%TARGET%" rmdir /s /q "%TARGET%"',
   '',
   'xcopy "%~dp0PrBinView" "%TARGET%\\" /E /I /Y /Q /H >nul',
@@ -74,6 +73,11 @@ var WIN_UNINSTALL_CMD = [
   '  echo [OK] 已卸载：%EXT_BASE%\\PrBinView',
   '  set "REMOVED=1"',
   ')',
+  'if exist "%EXT_BASE%\\com.antigravity.prbinview" (',
+  '  rmdir /s /q "%EXT_BASE%\\com.antigravity.prbinview"',
+  '  echo [OK] 已清理旧版本：%EXT_BASE%\\com.antigravity.prbinview',
+  '  set "REMOVED=1"',
+  ')',
   'if "%REMOVED%"=="0" (',
   '  echo [提示] 未发现已安装的 PrBinView 插件。',
   ')',
@@ -96,7 +100,7 @@ var MAC_INSTALL_SH = [
   'fi',
   '',
   'mkdir -p "$EXT_BASE"',
-  'rm -rf "$TARGET"',
+  'rm -rf "$TARGET" "$EXT_BASE/com.antigravity.prbinview"',
   'cp -R "$SRC" "$TARGET"',
   '',
   'defaults write com.adobe.CSXS.11 PlayerDebugMode 1 || true',
@@ -107,40 +111,116 @@ var MAC_INSTALL_SH = [
   ''
 ].join('\n');
 
-function main() {
-  if (!fs.existsSync(path.join(PLUGIN_SRC, 'CSXS', 'manifest.xml'))) {
-    throw new Error('Missing PrBinView/CSXS/manifest.xml');
+var FFMPEG_NOTICE = [
+  'FFmpeg Binary Attribution & License Notice',
+  '==========================================',
+  '',
+  'This Windows portable edition of PrBinView includes an unmodified ffmpeg.exe',
+  'binary for fast local video/image thumbnail extraction and media probing.',
+  '',
+  '- Project: FFmpeg (https://ffmpeg.org/)',
+  '- Windows Build: gyan.dev FFmpeg Release Essentials (https://www.gyan.dev/ffmpeg/builds/)',
+  '- License: GNU General Public License v3.0 (see FFMPEG-LICENSE.txt in this folder)',
+  '- Source Code: https://ffmpeg.org/download.html',
+  ''
+].join('\r\n');
+
+function parseArgs(argv) {
+  var out = { ffmpegSource: '' };
+  for (var i = 0; i < argv.length; i++) {
+    if (argv[i] === '--ffmpeg' && argv[i + 1]) {
+      out.ffmpegSource = argv[++i];
+    } else if (argv[i].indexOf('--ffmpeg=') === 0) {
+      out.ffmpegSource = argv[i].slice('--ffmpeg='.length);
+    }
   }
+  return out;
+}
 
-  fs.mkdirSync(DIST_DIR, { recursive: true });
-  if (fs.existsSync(STAGE_DIR)) fs.rmSync(STAGE_DIR, { recursive: true, force: true });
-  if (fs.existsSync(ZIP_PATH)) fs.rmSync(ZIP_PATH, { force: true });
+function resolveFfmpegSource(inputPath) {
+  if (!inputPath) return null;
+  var p = path.resolve(inputPath);
+  if (!fs.existsSync(p)) throw new Error('FFmpeg path not found: ' + p);
+  var st = fs.statSync(p);
+  var exePath = '';
+  var baseDir = '';
+  if (st.isFile()) {
+    exePath = p;
+    baseDir = path.dirname(p);
+  } else {
+    baseDir = p;
+    var candidates = [
+      path.join(p, 'bin', 'ffmpeg.exe'),
+      path.join(p, 'ffmpeg.exe')
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      if (fs.existsSync(candidates[i])) { exePath = candidates[i]; break; }
+    }
+  }
+  if (!exePath || !fs.existsSync(exePath)) {
+    throw new Error('Could not locate ffmpeg.exe inside: ' + p);
+  }
+  var licenseCandidates = [
+    path.join(baseDir, 'LICENSE'),
+    path.join(baseDir, 'LICENSE.txt'),
+    path.join(path.dirname(baseDir), 'LICENSE'),
+    path.join(path.dirname(baseDir), 'LICENSE.txt')
+  ];
+  var licensePath = '';
+  for (var j = 0; j < licenseCandidates.length; j++) {
+    if (fs.existsSync(licenseCandidates[j]) && fs.statSync(licenseCandidates[j]).isFile()) {
+      licensePath = licenseCandidates[j];
+      break;
+    }
+  }
+  return { exePath: exePath, licensePath: licensePath };
+}
 
-  fs.mkdirSync(STAGE_DIR, { recursive: true });
-  fs.cpSync(PLUGIN_SRC, path.join(STAGE_DIR, 'PrBinView'), {
+function buildBundle(bundleName, ffmpegInfo, includeMacScript) {
+  var stageDir = path.join(DIST_DIR, bundleName);
+  var zipPath = path.join(DIST_DIR, bundleName + '.zip');
+
+  if (fs.existsSync(stageDir)) fs.rmSync(stageDir, { recursive: true, force: true });
+  if (fs.existsSync(zipPath)) fs.rmSync(zipPath, { force: true });
+  fs.mkdirSync(stageDir, { recursive: true });
+
+  /* Copy plugin excluding any stray local bin/ directory so lightweight stays truly lightweight */
+  fs.cpSync(PLUGIN_SRC, path.join(stageDir, 'PrBinView'), {
     recursive: true,
     filter: function (src) {
-      var rel = path.relative(PLUGIN_SRC, src).replace(/\\/g, '/');
-      if (!rel) return true;
-      if (rel === '.debug' || rel === '.debug.example') return false;
-      if (rel === 'bin' || rel.indexOf('bin/') === 0) return false;
-      return true;
+      var rel = path.relative(PLUGIN_SRC, src);
+      return rel !== 'bin' && rel.indexOf('bin' + path.sep) !== 0 && rel !== '.debug';
     }
   });
-  fs.copyFileSync(path.join(ROOT, 'README.md'), path.join(STAGE_DIR, 'README.md'));
-  var licenseSrc = path.join(ROOT, 'LICENSE');
-  if (fs.existsSync(licenseSrc)) {
-    fs.copyFileSync(licenseSrc, path.join(STAGE_DIR, 'LICENSE'));
+
+  if (ffmpegInfo) {
+    var binDir = path.join(stageDir, 'PrBinView', 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.copyFileSync(ffmpegInfo.exePath, path.join(binDir, 'ffmpeg.exe'));
+    if (ffmpegInfo.licensePath) {
+      fs.copyFileSync(ffmpegInfo.licensePath, path.join(binDir, 'FFMPEG-LICENSE.txt'));
+    }
+    fs.writeFileSync(path.join(binDir, 'FFMPEG-README.txt'), FFMPEG_NOTICE, 'utf8');
   }
-  fs.writeFileSync(path.join(STAGE_DIR, '一键安装_Windows.cmd'), WIN_INSTALL_CMD, 'utf8');
-  fs.writeFileSync(path.join(STAGE_DIR, '一键卸载_Windows.cmd'), WIN_UNINSTALL_CMD, 'utf8');
-  fs.writeFileSync(path.join(STAGE_DIR, 'install_macOS.command'), MAC_INSTALL_SH, { encoding: 'utf8', mode: 0o755 });
+
+  fs.copyFileSync(path.join(ROOT, 'README.md'), path.join(stageDir, 'README.md'));
+  if (fs.existsSync(path.join(ROOT, 'README.en.md'))) {
+    fs.copyFileSync(path.join(ROOT, 'README.en.md'), path.join(stageDir, 'README.en.md'));
+  }
+  if (fs.existsSync(path.join(ROOT, 'LICENSE'))) {
+    fs.copyFileSync(path.join(ROOT, 'LICENSE'), path.join(stageDir, 'LICENSE'));
+  }
+  fs.writeFileSync(path.join(stageDir, '一键安装_Windows.cmd'), WIN_INSTALL_CMD, 'utf8');
+  fs.writeFileSync(path.join(stageDir, '一键卸载_Windows.cmd'), WIN_UNINSTALL_CMD, 'utf8');
+  if (includeMacScript) {
+    fs.writeFileSync(path.join(stageDir, 'install_macOS.command'), MAC_INSTALL_SH, { encoding: 'utf8', mode: 0o755 });
+  }
 
   var psScript = [
     'Add-Type -AssemblyName System.IO.Compression',
     'Add-Type -AssemblyName System.IO.Compression.FileSystem',
-    '$src = ' + JSON.stringify(STAGE_DIR),
-    '$dst = ' + JSON.stringify(ZIP_PATH),
+    '$src = ' + JSON.stringify(stageDir),
+    '$dst = ' + JSON.stringify(zipPath),
     'if (Test-Path $dst) { Remove-Item $dst -Force }',
     '[System.IO.Compression.ZipFile]::CreateFromDirectory($src, $dst, [System.IO.Compression.CompressionLevel]::Optimal, $false, [System.Text.Encoding]::UTF8)',
     '$zip = [System.IO.Compression.ZipFile]::OpenRead($dst)',
@@ -152,10 +232,29 @@ function main() {
   ], { encoding: 'utf8' });
 
   var entries = out.trim().split(/\r?\n/).filter(Boolean);
-  var stat = fs.statSync(ZIP_PATH);
-  console.log('[OK] Packaged:', ZIP_PATH, '(' + Math.round(stat.size / 1024) + ' KB, ' + entries.length + ' files)');
-  console.log('[OK] Unpacked folder:', STAGE_DIR);
+  var stat = fs.statSync(zipPath);
+  var sizeStr = stat.size >= 1048576
+    ? ((stat.size / 1048576).toFixed(2) + ' MB')
+    : (Math.round(stat.size / 1024) + ' KB');
+  console.log('[OK] Packaged:', zipPath, '(' + sizeStr + ', ' + entries.length + ' files)');
   entries.forEach(function (e) { console.log('  - ' + e); });
+}
+
+function main() {
+  if (!fs.existsSync(path.join(PLUGIN_SRC, 'CSXS', 'manifest.xml'))) {
+    throw new Error('Missing PrBinView/CSXS/manifest.xml');
+  }
+  var opts = parseArgs(process.argv.slice(2));
+  fs.mkdirSync(DIST_DIR, { recursive: true });
+
+  /* 1. Lightweight cross-platform bundle */
+  buildBundle('PrBinView-v' + VERSION, null, true);
+
+  /* 2. Optional Windows single-binary FFmpeg portable bundle */
+  if (opts.ffmpegSource) {
+    var ffInfo = resolveFfmpegSource(opts.ffmpegSource);
+    buildBundle('PrBinView-v' + VERSION + '-win-ffmpeg', ffInfo, false);
+  }
 }
 
 main();

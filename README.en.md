@@ -43,7 +43,9 @@ Built to improve the browsing experience of Premiere Pro's built-in Project pane
 ## Installation
 
 ### Windows (Recommended: One-Click Installer, No Node.js Required)
-1. Download and fully extract `PrBinView-v1.3.7.zip` from the [Releases](https://github.com/CG-Bai/PrBinView/releases) page.
+1. Download and fully extract a release package from [Releases](https://github.com/CG-Bai/PrBinView/releases):
+   - **Windows Portable Edition (Recommended)**: `PrBinView-v1.3.7-win-ffmpeg.zip` (bundles a single `ffmpeg.exe` for out-of-the-box MXF / ProRes / PSD / EXR previews)
+   - **Lightweight Edition**: `PrBinView-v1.3.7.zip` (~120 KB, ideal if FFmpeg is already in your `PATH` or you only preview standard MP4 / MOV / Image / AI files)
 2. Double-click **`一键安装_Windows.cmd`** (automatically copies the extension and enables Adobe CEP `PlayerDebugMode=1`).
 3. **Restart Premiere Pro**, then open **Window → Extensions → PrBinView · 媒体池预览**.
 
@@ -60,9 +62,9 @@ Built to improve the browsing experience of Premiere Pro's built-in Project pane
 2. Restart Premiere Pro and open the panel.
 
 ### FFmpeg Setup (Optional, Recommended for Faster Video / PSD Thumbnails)
-PrBinView looks for `ffmpeg` / `ffprobe` in the following order:
-1. `PrBinView\bin\ffmpeg.exe` inside the extension directory (portable)
-2. Environment variables `PRBINVIEW_FFMPEG` / `PRBINVIEW_FFPROBE`
+PrBinView looks for `ffmpeg` in the following order (only a single `ffmpeg.exe` is needed; `ffprobe.exe` is optional):
+1. `PrBinView\bin\ffmpeg.exe` inside the extension directory (included in the Portable Edition)
+2. Environment variable `PRBINVIEW_FFMPEG`
 3. System `PATH` (if FFmpeg is in your `PATH`, the status bar will automatically show `FFmpeg`)
 
 ## Keyboard Shortcuts
@@ -98,7 +100,7 @@ reg delete HKCU\Software\Adobe\CSXS.12 /v PlayerDebugMode /f
   - `render-vector.ps1`: Uses Windows WinRT PDF / Shell APIs to render `.ai` / `.pdf` / `.eps` thumbnails.
   - `pr-menu.ps1`: Uses Win32 Menu / UI Automation to trigger Premiere Pro's native **Link Media** and **Export Media** menus.
   - Because these scripts invoke `powershell.exe` and .NET/Win32 APIs, some antivirus tools may raise heuristic false positives. All helper scripts are plain text and fully inspectable.
-- **FFmpeg Notice**: Neither this repository nor release packages bundle FFmpeg binaries; PrBinView optionally invokes a user-installed `ffmpeg` / `ffprobe` executable at runtime.
+- **FFmpeg Notice**: This Git source repository and the lightweight release (`PrBinView-v1.3.7.zip`) do not contain FFmpeg binaries. The optional Windows Portable release (`PrBinView-v1.3.7-win-ffmpeg.zip`) bundles a single `ffmpeg.exe` (9.1 essentials from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), licensed under GPL-3.0, with `FFMPEG-LICENSE.txt` included in `PrBinView/bin/`).
 
 ## License & Disclaimer
 

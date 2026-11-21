@@ -43,7 +43,9 @@
 ## 安装方式
 
 ### Windows（推荐：一键安装，无需 Node.js）
-1. 在 [Releases](https://github.com/CG-Bai/PrBinView/releases) 页面下载并完整解压 `PrBinView-v1.3.7.zip`。
+1. 在 [Releases](https://github.com/CG-Bai/PrBinView/releases) 页面下载并完整解压：
+   - **便携全格式版（推荐新手）**：`PrBinView-v1.3.7-win-ffmpeg.zip`（内置单个 `ffmpeg.exe`，无需额外配置即可预览 MXF / ProRes / PSD 等全格式）
+   - **轻量版**：`PrBinView-v1.3.7.zip`（仅约 120 KB，适合电脑已装 FFmpeg 或仅预览常见 MP4 / MOV / 图片 / AI 的用户）
 2. 双击运行 **`一键安装_Windows.cmd`**（自动复制插件并开启 Adobe CEP 开发者模式 `PlayerDebugMode=1`）。
 3. **重启 Premiere Pro**，点击菜单：**窗口 → 扩展 → PrBinView · 媒体池预览**。
 
@@ -59,10 +61,10 @@
 1. 解压发布包后，双击运行 **`install_macOS.command`**（或在终端中执行 `bash install_macOS.command`）。
 2. 重启 Premiere Pro 打开面板即可。
 
-### FFmpeg 说明（可选，推荐安装以加速视频 / PSD 缩略图）
-面板按以下顺序自动查找 `ffmpeg` / `ffprobe`：
-1. 插件目录下的 `PrBinView\bin\ffmpeg.exe`（便携免装）
-2. 环境变量 `PRBINVIEW_FFMPEG` / `PRBINVIEW_FFPROBE`
+### FFmpeg 说明（可选，推荐用于加速视频 / PSD 缩略图）
+面板按以下顺序自动查找 `ffmpeg`（无需 `ffprobe.exe`，单个 `ffmpeg.exe` 即可完成抽帧、雪碧图与媒体属性探测）：
+1. 插件目录下的 `PrBinView\bin\ffmpeg.exe`（便携版已内置）
+2. 环境变量 `PRBINVIEW_FFMPEG`
 3. 系统 `PATH`（如系统已安装 FFmpeg 并加入 PATH 将自动显示「FFmpeg 加速」）
 
 ## 常用快捷键
@@ -98,7 +100,7 @@ reg delete HKCU\Software\Adobe\CSXS.12 /v PlayerDebugMode /f
   - `render-vector.ps1`：调用 Windows WinRT PDF / Shell 接口为 `.ai` / `.pdf` / `.eps` 生成缩略图。
   - `pr-menu.ps1`：通过 Win32 菜单 / UI Automation 触发 Premiere Pro 原生「链接媒体」与「导出媒体」菜单。
   - 上述脚本调用系统内置 `powershell.exe` 与 .NET/Win32 API，部分杀毒软件可能会出现启发式误报，所有脚本均为明文源码，可直接检查后放心使用。
-- **FFmpeg 说明**：本仓库及发布包不包含任何 FFmpeg 二进制文件，仅在运行时可选调用用户本机安装的 `ffmpeg` / `ffprobe`。
+- **FFmpeg 说明**：本 Git 源码仓库及轻量发布包（`PrBinView-v1.3.7.zip`）不包含任何 FFmpeg 二进制文件；可选的 Windows 便携发布包（`PrBinView-v1.3.7-win-ffmpeg.zip`）在 `PrBinView/bin/` 中附带了来自 [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) 官方构建的 `ffmpeg.exe`（9.1 essentials，遵循 GPL-3.0 协议，并随包附带对应 `FFMPEG-LICENSE.txt`）。
 
 ## 开源协议与免责声明
 
