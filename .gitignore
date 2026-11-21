@@ -1,0 +1,20 @@
+# Build & release artifacts (upload zip via GitHub Releases instead)
+dist/
+
+# Dependencies & logs
+node_modules/
+*.log
+npm-debug.log*
+
+# Local CEP remote debugging config (copy from PrBinView/.debug.example when developing)
+PrBinView/.debug
+
+# Optional local portable FFmpeg binaries (never commit binaries to repo)
+PrBinView/bin/
+
+# OS & editor junk
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
