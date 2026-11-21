@@ -1,30 +1,49 @@
+<p align="center">
+  <strong>简体中文</strong> | <a href="./README.en.md">English</a>
+</p>
+
 # PrBinView · Premiere Pro 单面板极速媒体预览插件（v1.3.7）
 
 面向 **Premiere Pro（2022–2027，Windows 为主 / macOS 基础兼容）** 的纯 **CEP 12 单面板** 媒体池缩略图预览扩展。
 
-> **平台说明**：主要在 Windows 平台深度适配与测试；macOS 支持核心浏览、缩略图、同步与常见项目管理功能，但部分依赖 Windows 原生接口的增强特性（WinRT 矢量透明渲染、原生菜单联动、自动探测 Photoshop / Audition 及 `.epr` 预设扫描）在 macOS 上会自动降级或不可用。
+旨在优化 Premiere Pro 自带项目面板的浏览体验，像 **DaVinci Resolve（达芬奇）** 一样——左侧栏单击素材箱（文件夹），右侧即刻展示该文件夹内的素材缩略图。
 
+## 界面预览
+
+![PrBinView 界面预览 1](docs/images/Image%2001.png)
+
+![PrBinView 界面预览 2](docs/images/Image%2002.png)
+
+![PrBinView 界面预览 3](docs/images/Image%2003.png)
+
+![PrBinView 界面预览 4](docs/images/Image%2004.png)
+
+## 使用建议与说明
+
+- **推荐搭配原生项目面板使用**：受限于 Premiere Pro 自身的接口限制及作者个人能力，目前无法完整复刻原生项目面板右键菜单中的全部功能。因此**更推荐隐藏本插件的左侧素材箱栏，与 Premiere Pro 原生项目面板搭配使用**——利用双向联动，在原生项目面板单击任意文件夹，本面板右侧即可实时预览素材缩略图。
+- **关于开发与反馈**：本项目全程借助 AI 辅助制作，作者本人不懂代码。非常欢迎在 Issues 中提出建议或功能需求，但无法保证一定能够实现，敬请谅解；也欢迎熟悉开发的朋友直接提交 PR 共同完善。
+- **平台兼容说明**：主要在 Windows 平台深度适配与测试；macOS 支持核心浏览、缩略图、同步与常见项目管理功能，但部分依赖 Windows 原生接口的增强特性（WinRT 矢量透明渲染、原生菜单联动、自动探测 Photoshop / Audition 及 `.epr` 预设扫描）在 macOS 上会自动降级或不可用。
 
 ## 核心功能
 
-- **真正单一面板，零额外进程**：无需桥接面板、无需 UXP Developer Tool、无需手动启动后台窗口；安装后在 Premiere Pro 顶部菜单点击 **窗口 → 扩展 → PrBinView · 媒体池预览**（英文版：**Window → Extensions → PrBinView · 媒体池预览**）即可使用。
+- **真正单一面板，开箱即用**：无需额外桥接面板，无需手动启动后台进程；安装后在 Premiere Pro 顶部菜单点击 **窗口 → 扩展 → PrBinView · 媒体池预览**（英文版：**Window → Extensions → PrBinView · 媒体池预览**）即可使用。
 - **双向实时同步 & 自动刷新**：
   - 左侧素材箱树、右侧网格/列表与 Pr 原生项目面板实时双向联动；支持拖拽移动素材箱、拖放素材到时间线自动保留原素材与标签颜色、外部文件夹整目录拖入导入。
   - 在 Pr 原生项目面板执行 **Replace Footage（替换素材）**、重命名、更改标签颜色或启动上线恢复时，插件自动检测并刷新缩略图与属性。
 - **极速缩略图引擎（含矢量与专业格式）**：
-  - 视频 / 专业图像（MP4/MOV/MXF/MKV/PSD/TIFF/EXR 等）通过 FFmpeg 快速关键帧抽取与视口懒加载；支持 `.ai` / `.pdf` / `.eps` 透明通道缩略图预览。
+  - 视频 / 专业图像（MP4 / MOV / MXF / MKV / PSD / TIFF / EXR 等）通过 FFmpeg 快速关键帧抽取与视口懒加载；支持 `.ai` / `.pdf` / `.eps` 透明通道缩略图预览。
   - 支持鼠标悬停 60fps 实时擦洗预览与网格 / 详细列表视图切换（帧速率、媒体起止/时长、视频/音频信息等多列排序与自定义列宽）。
-- **Pr 原生项目面板操作与快捷键**：
-  - 完整对齐 Pr 原生素材 / 序列 / 素材箱右键菜单（剪切、复制、粘贴、制作副本、隐藏、媒体文件属性、序列设置、自动重构、制作子剪辑、替换素材、链接媒体、使脱机、编辑原始文件 / Audition / Photoshop、导出媒体等）。
+- **常用 Pr 原生项目面板操作与快捷键**：
+  - 覆盖 Pr 原生素材 / 序列 / 素材箱的常用右键操作（剪切、复制、粘贴、制作副本、隐藏、媒体文件属性、序列设置、自动重构、制作子剪辑、替换素材、链接媒体、使脱机、编辑原始文件 / Audition / Photoshop、导出媒体等）。
   - 键盘 `↑ / ↓ / ← / →` 直接在插件面板内移动选中素材与文件夹（支持 `Shift + 方向键` 多选、`Space` 源监视器预览、`Enter` 打开/进入），不再被时间线播放头抢占；`Delete / Backspace` 仅在素材被序列引用时弹窗提醒。
 - **全中文 / 全英文一键切换 & Pr 首选项标签颜色同步**：
-  - 右上角 **`中 / EN`** 一键切换全中文 / 全英文界面（完全按 Pr 原生项目面板术语命名）。
+  - 右上角 **`中 / EN`** 一键切换全中文 / 全英文界面（按 Pr 原生项目面板术语命名）。
   - 自动读取 Pr 首选项（`Preferences → Labels` / `Adobe Premiere Pro Prefs` / `.prlabelpreset`）中的自定义标签颜色与自定义标签名称。
 
 ## 安装方式
 
 ### Windows（推荐：一键安装，无需 Node.js）
-1. 解压发布包 `PrBinView-v1.3.7.zip`。
+1. 在 [Releases](https://github.com/CG-Bai/PrBinView/releases) 页面下载并完整解压 `PrBinView-v1.3.7.zip`。
 2. 双击运行 **`一键安装_Windows.cmd`**（自动复制插件并开启 Adobe CEP 开发者模式 `PlayerDebugMode=1`）。
 3. **重启 Premiere Pro**，点击菜单：**窗口 → 扩展 → PrBinView · 媒体池预览**。
 
@@ -37,10 +56,10 @@
 3. 重启 Premiere Pro 打开面板即可。
 
 ### macOS
-1. 双击运行 **`install_macOS.command`**（或在终端中执行 `bash install_macOS.command`）。
+1. 解压发布包后，双击运行 **`install_macOS.command`**（或在终端中执行 `bash install_macOS.command`）。
 2. 重启 Premiere Pro 打开面板即可。
 
-### FFmpeg 说明（可选，推荐安装以加速视频/PSD缩略图）
+### FFmpeg 说明（可选，推荐安装以加速视频 / PSD 缩略图）
 面板按以下顺序自动查找 `ffmpeg` / `ffprobe`：
 1. 插件目录下的 `PrBinView\bin\ffmpeg.exe`（便携免装）
 2. 环境变量 `PRBINVIEW_FFMPEG` / `PRBINVIEW_FFPROBE`
