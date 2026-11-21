@@ -4,7 +4,6 @@
 
 > **平台说明**：主要在 Windows 平台深度适配与测试；macOS 支持核心浏览、缩略图、同步与常见项目管理功能，但部分依赖 Windows 原生接口的增强特性（WinRT 矢量透明渲染、原生菜单联动、自动探测 Photoshop / Audition 及 `.epr` 预设扫描）在 macOS 上会自动降级或不可用。
 
-彻底告别「UXP 面板 + CEP 桥接面板 + 外部 CMD 抽帧进程」三件套：所有功能集成在 **同一个 Premiere Pro 面板** 中，开箱即用，单击项目中的任意素材箱即可毫秒级切换并预览缩略图。
 
 ## 核心功能
 
@@ -70,21 +69,6 @@
 ```cmd
 reg delete HKCU\Software\Adobe\CSXS.12 /v PlayerDebugMode /f
 ```
-
-## 开发与调试
-
-```bash
-# 运行单元测试
-npm test
-
-# 浏览器预览 UI（演示模式）
-npm run demo
-
-# 打包发布 zip（自动剔除 .debug 与本地 bin/ 目录）
-npm run package
-```
-
-- 如需在 Premiere Pro 内开启 Chrome DevTools 调试面板，可将 `PrBinView/.debug.example` 复制为 `PrBinView/.debug` 后重启 Premiere Pro，再通过浏览器访问 `http://localhost:8092`。发布包默认不包含 `.debug` 文件。
 
 ## 安全与权限说明
 
