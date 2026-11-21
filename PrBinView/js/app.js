@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var PLUGIN_VERSION = '1.3.7';
+  var PLUGIN_VERSION = '1.3.8';
   var U = window.PrUtils;
   var I18n = window.PrI18n;
   var t = function (key, vars) { return I18n ? I18n.t(key, vars) : key; };

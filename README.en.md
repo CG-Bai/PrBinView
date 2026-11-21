@@ -2,7 +2,7 @@
   <a href="./README.md">简体中文</a> | <strong>English</strong>
 </p>
 
-# PrBinView · Fast Single-Panel Media Bin Previewer for Premiere Pro (v1.3.7)
+# PrBinView · Fast Single-Panel Media Bin Previewer for Premiere Pro (v1.3.8)
 
 A pure **CEP 12 single-panel** media bin thumbnail preview extension for **Adobe Premiere Pro (2022–2027, primarily tested on Windows / basic macOS support)**.
 
@@ -44,8 +44,8 @@ Built to improve the browsing experience of Premiere Pro's built-in Project pane
 
 ### Windows (Recommended: One-Click Installer, No Node.js Required)
 1. Download and fully extract a release package from [Releases](https://github.com/CG-Bai/PrBinView/releases):
-   - **Windows Portable Edition (Recommended)**: `PrBinView-v1.3.7-win-ffmpeg.zip` (bundles a single `ffmpeg.exe` for out-of-the-box MXF / ProRes / PSD / EXR previews)
-   - **Lightweight Edition**: `PrBinView-v1.3.7.zip` (~120 KB, ideal if FFmpeg is already in your `PATH` or you only preview standard MP4 / MOV / Image / AI files)
+   - **Windows Portable Edition (Recommended)**: `PrBinView-v1.3.8-win-ffmpeg.zip` (bundles a single `ffmpeg.exe` for out-of-the-box MXF / ProRes / PSD / EXR previews)
+   - **Lightweight Edition**: `PrBinView-v1.3.8.zip` (~140 KB, ideal if FFmpeg is already in your `PATH` or you only preview standard MP4 / MOV / Image / AI files)
 2. Double-click **`一键安装_Windows.cmd`** (automatically copies the extension and enables Adobe CEP `PlayerDebugMode=1`).
 3. **Restart Premiere Pro**, then open **Window → Extensions → PrBinView · 媒体池预览**.
 
@@ -100,7 +100,7 @@ reg delete HKCU\Software\Adobe\CSXS.12 /v PlayerDebugMode /f
   - `render-vector.ps1`: Uses Windows WinRT PDF / Shell APIs to render `.ai` / `.pdf` / `.eps` thumbnails.
   - `pr-menu.ps1`: Uses Win32 Menu / UI Automation to trigger Premiere Pro's native **Link Media** and **Export Media** menus.
   - Because these scripts invoke `powershell.exe` and .NET/Win32 APIs, some antivirus tools may raise heuristic false positives. All helper scripts are plain text and fully inspectable.
-- **FFmpeg Notice**: This Git source repository and the lightweight release (`PrBinView-v1.3.7.zip`) do not contain FFmpeg binaries. The optional Windows Portable release (`PrBinView-v1.3.7-win-ffmpeg.zip`) bundles a single `ffmpeg.exe` (9.1 essentials from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), licensed under GPL-3.0, with `FFMPEG-LICENSE.txt` included in `PrBinView/bin/`).
+- **FFmpeg Notice**: This Git source repository and the lightweight release (`PrBinView-v1.3.8.zip`) do not contain FFmpeg binaries. The optional Windows Portable release (`PrBinView-v1.3.8-win-ffmpeg.zip`) bundles a single `ffmpeg.exe` (9.1 essentials from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), licensed under GPL-3.0, with `FFMPEG-LICENSE.txt` included in `PrBinView/bin/`).
 
 ## License & Disclaimer
 

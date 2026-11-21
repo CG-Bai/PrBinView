@@ -161,6 +161,7 @@ function resolveFfmpegSource(inputPath) {
     throw new Error('Could not locate ffmpeg.exe inside: ' + p);
   }
   var licenseCandidates = [
+    path.join(baseDir, 'FFMPEG-LICENSE.txt'),
     path.join(baseDir, 'LICENSE'),
     path.join(baseDir, 'LICENSE.txt'),
     path.join(path.dirname(baseDir), 'LICENSE'),

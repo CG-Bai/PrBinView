@@ -30,6 +30,7 @@
       this._scrubHost = null;
       this._scrubNode = null;
       this._scrubTimer = 0;
+      this._scrubVideoGuardTimer = 0;
       this._scrubMode = 'none'; /* 'video' | 'sprite' */
       this._scrubSprite = null;
       this._scrubPendingFrac = -1;
@@ -70,27 +71,38 @@
       var self = this;
       video.addEventListener('seeked', function () {
         if (self._scrubMode !== 'video' || self._scrubPendingFrac < 0) return;
+        if (!video.videoWidth || !video.videoHeight) {
+          self._fallbackVideoToSprite();
+          return;
+        }
         var frac = self._scrubPendingFrac;
         self._scrubPendingFrac = -1;
         self._applyVideoSeek(frac);
       });
+      video.addEventListener('loadedmetadata', function () {
+        /* ProRes / Animation / DNxHR / 10-bit .mov files often expose an audio track in Chromium
+           with duration > 0 but videoWidth === 0 (never firing 'error') -> switch immediately to FFmpeg sprite! */
+        if (self._scrubMode === 'video' && (!video.videoWidth || !video.videoHeight)) {
+          self._fallbackVideoToSprite();
+        }
+      });
       video.addEventListener('loadeddata', function () {
-        if (self._scrubMode === 'video') {
-          video.classList.remove('hidden');
-          if (self._scrubPendingFrac >= 0) {
-            var frac = self._scrubPendingFrac;
-            self._scrubPendingFrac = -1;
-            self._applyVideoSeek(frac);
-          }
+        if (self._scrubMode !== 'video') return;
+        if (!video.videoWidth || !video.videoHeight) {
+          self._fallbackVideoToSprite();
+          return;
+        }
+        clearTimeout(self._scrubVideoGuardTimer);
+        self._scrubVideoGuardTimer = 0;
+        video.classList.remove('hidden');
+        if (self._scrubPendingFrac >= 0) {
+          var frac = self._scrubPendingFrac;
+          self._scrubPendingFrac = -1;
+          self._applyVideoSeek(frac);
         }
       });
       video.addEventListener('error', function () {
-        if (!self._scrubNode) return;
-        var badNode = self._scrubNode;
-        self._scrubVideoError.add(U.normKey(badNode.path));
-        if (self._scrubMode === 'video') {
-          self._startSpriteScrub(badNode, self._scrubPendingFrac >= 0 ? self._scrubPendingFrac : 0.1);
-        }
+        self._fallbackVideoToSprite();
       });
 
       this._overlay = overlay;
@@ -848,7 +860,20 @@
       }, 95);
     }
 
+    _fallbackVideoToSprite() {
+      clearTimeout(this._scrubVideoGuardTimer);
+      this._scrubVideoGuardTimer = 0;
+      if (!this._scrubNode) return;
+      var badNode = this._scrubNode;
+      this._scrubVideoError.add(U.normKey(badNode.path));
+      if (this._scrubMode === 'video') {
+        this._startSpriteScrub(badNode, this._scrubPendingFrac >= 0 ? this._scrubPendingFrac : 0.1);
+      }
+    }
+
     _beginScrub(thumbEl, node, frac) {
+      clearTimeout(this._scrubVideoGuardTimer);
+      this._scrubVideoGuardTimer = 0;
       this._overlay.classList.remove('hidden');
       this._video.classList.add('hidden');
       this._sprite.classList.add('hidden');
@@ -863,15 +888,28 @@
         this._scrubPendingFrac = frac;
         this._video.src = U.pathToFileUrl(node.path);
         try { this._video.load(); } catch (_) {}
+        var self = this;
+        /* Guard against unsupported codecs inside .mov/.mp4 that stall without firing 'error' */
+        this._scrubVideoGuardTimer = setTimeout(function () {
+          self._scrubVideoGuardTimer = 0;
+          if (self._scrubMode === 'video' && self._scrubNode === node) {
+            if (!self._video.videoWidth || !self._video.videoHeight || self._video.readyState < 2) {
+              self._fallbackVideoToSprite();
+            }
+          }
+        }, 900);
       } else {
         this._startSpriteScrub(node, frac);
       }
     }
 
     _startSpriteScrub(node, frac) {
+      clearTimeout(this._scrubVideoGuardTimer);
+      this._scrubVideoGuardTimer = 0;
       this._scrubMode = 'sprite';
       this._scrubSprite = null;
       this._video.classList.add('hidden');
+      this._tc.classList.add('hidden');
       try { this._video.pause(); this._video.removeAttribute('src'); } catch (_) {}
       var targetNode = node;
       var self = this;
@@ -889,6 +927,7 @@
       this._fill.style.width = Math.round(frac * 100) + '%';
       this._scrubPendingFrac = frac;
       if (this._scrubMode === 'video') {
+        if (!this._video.videoWidth || !this._video.videoHeight) return;
         if (!this._video.seeking) {
           this._scrubPendingFrac = -1;
           this._applyVideoSeek(frac);
@@ -899,6 +938,7 @@
     }
 
     _applyVideoSeek(frac) {
+      if (!this._video.videoWidth || !this._video.videoHeight) return;
       var dur = Number(this._video.duration);
       if (!Number.isFinite(dur) || dur <= 0) return;
       var target = Math.max(0, Math.min(dur - 0.04, frac * dur));
@@ -922,6 +962,8 @@
     stopScrub() {
       clearTimeout(this._scrubTimer);
       this._scrubTimer = 0;
+      clearTimeout(this._scrubVideoGuardTimer);
+      this._scrubVideoGuardTimer = 0;
       this._scrubHost = null;
       this._scrubNode = null;
       this._scrubMode = 'none';

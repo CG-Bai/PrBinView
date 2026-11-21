@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest Version="7.0" ExtensionBundleId="com.cgbai.prbinview" ExtensionBundleVersion="1.3.7" ExtensionBundleName="PrBinView">
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.cgbai.prbinview" ExtensionBundleVersion="1.3.8" ExtensionBundleName="PrBinView">
   <ExtensionList>
-    <Extension Id="com.cgbai.prbinview.panel" Version="1.3.7"/>
+    <Extension Id="com.cgbai.prbinview.panel" Version="1.3.8"/>
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
