@@ -477,6 +477,120 @@ if (typeof PrBinViewHost === 'undefined') {
             return h.toString(16);
         }
 
+        function computeSeqUsageSig() {
+            var h = 2166136261 >>> 0;
+            try {
+                var seqs = app.project ? app.project.sequences : null;
+                if (!seqs || !seqs.numSequences) return '0';
+                var sCount = seqs.numSequences;
+                h = hashUpdate(h, String(sCount) + ';');
+                var s, seq, t, vTracks, aTracks, vCnt, aCnt;
+                for (s = 0; s < sCount; s++) {
+                    seq = seqs[s];
+                    if (!seq) continue;
+                    vTracks = seq.videoTracks;
+                    vCnt = (vTracks && vTracks.numTracks) ? vTracks.numTracks : 0;
+                    for (t = 0; t < vCnt; t++) {
+                        try {
+                            if (vTracks[t] && vTracks[t].clips) {
+                                h = hashUpdate(h, 'v' + s + ':' + t + '=' + vTracks[t].clips.numItems + ';');
+                            }
+                        } catch (eV) {}
+                    }
+                    aTracks = seq.audioTracks;
+                    aCnt = (aTracks && aTracks.numTracks) ? aTracks.numTracks : 0;
+                    for (t = 0; t < aCnt; t++) {
+                        try {
+                            if (aTracks[t] && aTracks[t].clips) {
+                                h = hashUpdate(h, 'a' + s + ':' + t + '=' + aTracks[t].clips.numItems + ';');
+                            }
+                        } catch (eA) {}
+                    }
+                }
+            } catch (eAll) {}
+            return h.toString(16);
+        }
+
+        function buildUsageCountMap() {
+            var map = {};
+            try {
+                var seqs = app.project ? app.project.sequences : null;
+                if (!seqs || !seqs.numSequences) return map;
+                var s, seq, seqKey, t, c, clip, pi, nid, startTicks, pKey, rec;
+                function scanTrackList(tracks, isVideo) {
+                    if (!tracks || !tracks.numTracks) return;
+                    for (t = 0; t < tracks.numTracks; t++) {
+                        var tr = tracks[t];
+                        if (!tr || !tr.clips || !tr.clips.numItems) continue;
+                        for (c = 0; c < tr.clips.numItems; c++) {
+                            clip = tr.clips[c];
+                            if (!clip) continue;
+                            try {
+                                pi = clip.projectItem;
+                                nid = (pi && pi.nodeId) ? String(pi.nodeId) : '';
+                                if (!nid) continue;
+                                rec = map[nid];
+                                if (!rec) {
+                                    rec = { v: 0, a: 0, p: 0, _seen: {} };
+                                    map[nid] = rec;
+                                }
+                                if (isVideo) rec.v += 1;
+                                else rec.a += 1;
+                                startTicks = (clip.start && typeof clip.start.ticks !== 'undefined')
+                                    ? String(clip.start.ticks)
+                                    : String(Math.round(timeToSeconds(clip.start) * 1000));
+                                pKey = seqKey + '@' + startTicks;
+                                if (!rec._seen[pKey]) {
+                                    rec._seen[pKey] = true;
+                                    rec.p += 1;
+                                }
+                            } catch (eClip) {}
+                        }
+                    }
+                }
+                for (s = 0; s < seqs.numSequences; s++) {
+                    seq = seqs[s];
+                    if (!seq) continue;
+                    seqKey = String(seq.sequenceID || ('seq_' + s));
+                    try { scanTrackList(seq.videoTracks, true); } catch (eVT) {}
+                    try { scanTrackList(seq.audioTracks, false); } catch (eAT) {}
+                }
+            } catch (eMap) {}
+            return map;
+        }
+
+        function pad2(n) {
+            return n < 10 ? ('0' + n) : String(n);
+        }
+
+        function formatSequenceTimecode(displayTicks, timebaseTicks, isDropFrame) {
+            var TICKS_PER_SEC = 254016000000;
+            var tb = (timebaseTicks > 0) ? timebaseTicks : 10160640000;
+            var fps = TICKS_PER_SEC / tb;
+            var roundedFps = Math.round(fps);
+            if (!isFinite(roundedFps) || roundedFps < 1) roundedFps = 25;
+            var frames = Math.round((Number(displayTicks) || 0) / tb);
+            if (!isFinite(frames) || frames < 0) frames = 0;
+            var drop = 0;
+            if (isDropFrame && (roundedFps === 30 || roundedFps === 60)) {
+                drop = (roundedFps === 60) ? 4 : 2;
+                var framesPerMin = roundedFps * 60 - drop;
+                var framesPer10Min = roundedFps * 600 - drop * 9;
+                if (framesPerMin > 0 && framesPer10Min > 0) {
+                    var d = Math.floor(frames / framesPer10Min);
+                    var m = frames % framesPer10Min;
+                    frames = frames + drop * 9 * d + (m >= drop ? drop * Math.floor((m - drop) / framesPerMin) : 0);
+                }
+            }
+            var ff = frames % roundedFps;
+            var totalSec = Math.floor(frames / roundedFps);
+            var ss = totalSec % 60;
+            var mm = Math.floor(totalSec / 60) % 60;
+            var hh = Math.floor(totalSec / 3600);
+            var sep = (drop > 0) ? ';' : ':';
+            return pad2(hh) + sep + pad2(mm) + sep + pad2(ss) + sep + pad2(ff);
+        }
+
         function pollTick(payload) {
             bindProjectEvents();
             try {
@@ -491,6 +605,7 @@ if (typeof PrBinViewHost === 'undefined') {
                         folderCount: -1,
                         folderSig: '',
                         selSig: '',
+                        usageSig: '',
                         cameOnline: false,
                         sel: []
                     });
@@ -514,6 +629,7 @@ if (typeof PrBinViewHost === 'undefined') {
                 var selIds = getSelectionIds();
                 var folderSig = (payload && payload.wantSig) ? computeFolderSig(folderNode) : '';
                 var selSig = (payload && payload.wantSig) ? computeSelSig(selIds) : '';
+                var usageSig = (payload && payload.wantSig) ? computeSeqUsageSig() : '';
                 var cameOnline = false;
                 var offlineIds = (payload && isArray(payload.offlineIds)) ? payload.offlineIds : null;
                 if (offlineIds && offlineIds.length > 0) {
@@ -538,6 +654,7 @@ if (typeof PrBinViewHost === 'undefined') {
                     folderCount: folderCount,
                     folderSig: folderSig,
                     selSig: selSig,
+                    usageSig: usageSig,
                     cameOnline: cameOnline,
                     sel: selIds
                 });
@@ -555,6 +672,7 @@ if (typeof PrBinViewHost === 'undefined') {
                 var proj = app.project;
                 var root = proj.rootItem;
                 var seqMap = buildSequenceIdMap();
+                var usageMap = buildUsageCountMap();
                 var nodes = [];
                 _nodeMap = {};
                 _cachedDocKey = getDocKey(proj);
@@ -573,6 +691,7 @@ if (typeof PrBinViewHost === 'undefined') {
                     if (bin && item.children) {
                         count = item.children.numItems;
                     }
+                    var uRec = bin ? null : usageMap[id];
                     nodes.push({
                         id: id,
                         pid: parentId,
@@ -583,7 +702,10 @@ if (typeof PrBinViewHost === 'undefined') {
                         path: mediaPath,
                         offline: offline,
                         label: label,
-                        childCount: count
+                        childCount: count,
+                        uv: uRec ? uRec.v : 0,
+                        ua: uRec ? uRec.a : 0,
+                        up: uRec ? uRec.p : 0
                     });
                     if (bin && item.children && count > 0) {
                         var i;
@@ -2009,12 +2131,346 @@ if (typeof PrBinViewHost === 'undefined') {
             }
         }
 
+        function getItemUsage(payload) {
+            try {
+                if (!app || !app.project) return fail('No active project');
+                var id = payload && payload.id ? String(payload.id) : '';
+                if (!id) return fail('Missing item id');
+                var item = findNode(id);
+                if (!item) return fail('Item not found');
+
+                var seqs = app.project.sequences;
+                var videoCount = 0;
+                var audioCount = 0;
+                var entries = [];
+
+                if (seqs && seqs.numSequences) {
+                    var s, seq, seqId, seqName, tbTicks, zeroTicks, isDrop, st;
+                    for (s = 0; s < seqs.numSequences; s++) {
+                        seq = seqs[s];
+                        if (!seq) continue;
+                        seqId = String(seq.sequenceID || '');
+                        seqName = String(seq.name || '');
+                        tbTicks = 0;
+                        zeroTicks = 0;
+                        isDrop = false;
+                        try { if (seq.timebase) tbTicks = Number(seq.timebase); } catch (eTb) {}
+                        try { if (seq.zeroPoint) zeroTicks = Number(seq.zeroPoint); } catch (eZp) {}
+                        try {
+                            if (typeof seq.getSettings === 'function') {
+                                st = seq.getSettings();
+                                if (st) {
+                                    if (!tbTicks && st.videoFrameRate && st.videoFrameRate.ticks) {
+                                        tbTicks = Number(st.videoFrameRate.ticks);
+                                    }
+                                    /* Premiere videoDisplayFormat: 102 = 29.97 DF, 109 = 59.94 DF */
+                                    if (st.videoDisplayFormat === 102 || st.videoDisplayFormat === 109) {
+                                        isDrop = true;
+                                    }
+                                }
+                            }
+                        } catch (eSet) {}
+                        if (!(tbTicks > 0)) tbTicks = 10160640000;
+
+                        var seqEntries = [];
+                        var byStart = {};
+
+                        function scanSeqTracks(tracks, isVideo) {
+                            if (!tracks || !tracks.numTracks) return;
+                            var ti, ci, tr, clip, pi, nid, ticksStr, secVal, trackTag, existing, dispTicks;
+                            for (ti = 0; ti < tracks.numTracks; ti++) {
+                                tr = tracks[ti];
+                                if (!tr || !tr.clips || !tr.clips.numItems) continue;
+                                for (ci = 0; ci < tr.clips.numItems; ci++) {
+                                    clip = tr.clips[ci];
+                                    if (!clip) continue;
+                                    try {
+                                        pi = clip.projectItem;
+                                        nid = (pi && pi.nodeId) ? String(pi.nodeId) : '';
+                                        if (nid !== id) continue;
+                                        if (isVideo) videoCount += 1;
+                                        else audioCount += 1;
+
+                                        secVal = timeToSeconds(clip.start);
+                                        if (secVal < 0) secVal = 0;
+                                        ticksStr = (clip.start && typeof clip.start.ticks !== 'undefined' && String(clip.start.ticks) !== '')
+                                            ? String(clip.start.ticks)
+                                            : String(Math.round(secVal * 254016000000));
+                                        trackTag = (isVideo ? 'V' : 'A') + String(ti + 1);
+                                        existing = byStart[ticksStr];
+                                        if (existing) {
+                                            if (('+' + existing.tracks + '+').indexOf('+' + trackTag + '+') === -1) {
+                                                existing.tracks = existing.tracks + '+' + trackTag;
+                                            }
+                                            if (isVideo) existing.hasVideo = true;
+                                            else existing.hasAudio = true;
+                                        } else {
+                                            dispTicks = (Number(ticksStr) || 0) + (zeroTicks || 0);
+                                            existing = {
+                                                seqId: seqId,
+                                                seqName: seqName,
+                                                clipName: String(clip.name || item.name || ''),
+                                                startTicks: ticksStr,
+                                                startSec: secVal,
+                                                timecode: formatSequenceTimecode(dispTicks, tbTicks, isDrop),
+                                                tracks: trackTag,
+                                                hasVideo: !!isVideo,
+                                                hasAudio: !isVideo,
+                                                trackType: isVideo ? 'video' : 'audio',
+                                                trackIndex: ti,
+                                                clipIndex: ci
+                                            };
+                                            byStart[ticksStr] = existing;
+                                            seqEntries.push(existing);
+                                        }
+                                    } catch (eSc) {}
+                                }
+                            }
+                        }
+
+                        try { scanSeqTracks(seq.videoTracks, true); } catch (eV2) {}
+                        try { scanSeqTracks(seq.audioTracks, false); } catch (eA2) {}
+
+                        seqEntries.sort(function (a, b) {
+                            return (a.startSec || 0) - (b.startSec || 0);
+                        });
+                        var k;
+                        for (k = 0; k < seqEntries.length; k++) {
+                            entries.push(seqEntries[k]);
+                        }
+                    }
+                }
+
+                return ok({
+                    id: id,
+                    name: String(item.name || ''),
+                    videoCount: videoCount,
+                    audioCount: audioCount,
+                    entries: entries
+                });
+            } catch (err) {
+                return fail(err);
+            }
+        }
+
+        function jumpToSequenceTime(payload) {
+            try {
+                if (!app || !app.project) return fail('No active project');
+                var seqId = payload && payload.seqId ? String(payload.seqId) : '';
+                var ticksStr = payload && typeof payload.startTicks !== 'undefined' ? String(payload.startTicks) : '';
+                var secVal = payload && typeof payload.startSec === 'number' ? payload.startSec : -1;
+                if (!ticksStr && secVal >= 0) {
+                    ticksStr = String(Math.round(secVal * 254016000000));
+                }
+                if (!seqId) return fail('Missing sequence id');
+
+                var targetSeq = null;
+                var seqs = app.project.sequences;
+                var s;
+                if (seqs && seqs.numSequences) {
+                    for (s = 0; s < seqs.numSequences; s++) {
+                        if (seqs[s] && String(seqs[s].sequenceID || '') === seqId) {
+                            targetSeq = seqs[s];
+                            break;
+                        }
+                    }
+                }
+                if (!targetSeq) return fail('Sequence not found');
+
+                var alreadyActive = !!(app.project.activeSequence && String(app.project.activeSequence.sequenceID || '') === seqId);
+                if (!alreadyActive && typeof app.project.openSequence === 'function') {
+                    app.project.openSequence(seqId);
+                }
+                var liveSeq = (app.project.activeSequence && String(app.project.activeSequence.sequenceID || '') === seqId)
+                    ? app.project.activeSequence
+                    : targetSeq;
+
+                if (ticksStr && typeof liveSeq.setPlayerPosition === 'function') {
+                    liveSeq.setPlayerPosition(ticksStr);
+                }
+
+                /* Highlight the target clip on the sequence timeline if supported */
+                var wantType = payload && payload.trackType ? String(payload.trackType) : '';
+                var wantTrack = payload && typeof payload.trackIndex === 'number' ? payload.trackIndex : -1;
+                var wantClip = payload && typeof payload.clipIndex === 'number' ? payload.clipIndex : -1;
+                try {
+                    function clearSelectionOnTracks(tracks) {
+                        if (!tracks || !tracks.numTracks) return;
+                        var ti, ci, tr, cl;
+                        for (ti = 0; ti < tracks.numTracks; ti++) {
+                            tr = tracks[ti];
+                            if (!tr || !tr.clips) continue;
+                            for (ci = 0; ci < tr.clips.numItems; ci++) {
+                                cl = tr.clips[ci];
+                                if (cl && typeof cl.setSelected === 'function') {
+                                    cl.setSelected(false, false);
+                                }
+                            }
+                        }
+                    }
+                    if (wantTrack >= 0 && wantClip >= 0) {
+                        clearSelectionOnTracks(liveSeq.videoTracks);
+                        clearSelectionOnTracks(liveSeq.audioTracks);
+                        var pickTracks = wantType === 'audio' ? liveSeq.audioTracks : liveSeq.videoTracks;
+                        if (pickTracks && wantTrack < pickTracks.numTracks) {
+                            var pTr = pickTracks[wantTrack];
+                            if (pTr && pTr.clips && wantClip < pTr.clips.numItems) {
+                                var pCl = pTr.clips[wantClip];
+                                if (pCl && typeof pCl.setSelected === 'function') {
+                                    pCl.setSelected(true, true);
+                                }
+                            }
+                        }
+                    }
+                } catch (eSel) {}
+
+                return ok({
+                    jumped: true,
+                    seqId: seqId,
+                    seqName: String(liveSeq.name || targetSeq.name || ''),
+                    startTicks: ticksStr
+                });
+            } catch (err) {
+                return fail(err);
+            }
+        }
+
+        function getTimelineSelection() {
+            try {
+                if (!app || !app.project) return fail('No active project');
+                var seq = app.project.activeSequence;
+                if (!seq) {
+                    return ok({
+                        found: false,
+                        reason: 'noSequence',
+                        seqName: '',
+                        ids: [],
+                        primaryId: '',
+                        primaryName: '',
+                        fromPlayhead: false
+                    });
+                }
+
+                var ids = [];
+                var seen = {};
+                var firstHolder = { name: '' };
+                var fromPlayhead = false;
+
+                function pushTrackClip(clip) {
+                    if (!clip) return;
+                    try {
+                        var pi = clip.projectItem;
+                        var nid = (pi && pi.nodeId) ? String(pi.nodeId) : '';
+                        if (!nid || seen[nid]) return;
+                        seen[nid] = true;
+                        ids.push(nid);
+                        if (!firstHolder.name) {
+                            firstHolder.name = String((pi && pi.name) || clip.name || '');
+                        }
+                    } catch (ePush) {}
+                }
+
+                /* 1. Primary: Premiere Pro activeSequence.getSelection() (prefer video clips first) */
+                try {
+                    if (typeof seq.getSelection === 'function') {
+                        var selList = seq.getSelection();
+                        if (selList && selList.length) {
+                            var si, sc, mType;
+                            for (si = 0; si < selList.length; si++) {
+                                sc = selList[si];
+                                mType = '';
+                                try { mType = String(sc.mediaType || ''); } catch (eMt) {}
+                                if (mType === 'Video') pushTrackClip(sc);
+                            }
+                            for (si = 0; si < selList.length; si++) {
+                                pushTrackClip(selList[si]);
+                            }
+                        }
+                    }
+                } catch (eSelApi) {}
+
+                /* 2. Fallback: inspect clip.isSelected() on video & audio tracks */
+                if (!ids.length) {
+                    function scanSelectedTracks(tracks) {
+                        if (!tracks || !tracks.numTracks) return;
+                        var ti, ci, tr, cl;
+                        for (ti = 0; ti < tracks.numTracks; ti++) {
+                            tr = tracks[ti];
+                            if (!tr || !tr.clips || !tr.clips.numItems) continue;
+                            for (ci = 0; ci < tr.clips.numItems; ci++) {
+                                cl = tr.clips[ci];
+                                try {
+                                    if (cl && typeof cl.isSelected === 'function' && cl.isSelected()) {
+                                        pushTrackClip(cl);
+                                    }
+                                } catch (eIsSel) {}
+                            }
+                        }
+                    }
+                    try { scanSelectedTracks(seq.videoTracks); } catch (eVT) {}
+                    try { scanSelectedTracks(seq.audioTracks); } catch (eAT) {}
+                }
+
+                /* 3. Smart fallback when nothing is selected: clip under current playhead */
+                if (!ids.length) {
+                    try {
+                        var pos = (typeof seq.getPlayerPosition === 'function') ? seq.getPlayerPosition() : null;
+                        var posSec = timeToSeconds(pos);
+                        if (posSec >= 0) {
+                            function findClipAtPlayhead(tracks, topDown) {
+                                if (!tracks || !tracks.numTracks) return;
+                                var ti, ci, tr, cl, stSec, enSec, muted;
+                                var startIdx = topDown ? (tracks.numTracks - 1) : 0;
+                                var endIdx = topDown ? -1 : tracks.numTracks;
+                                var step = topDown ? -1 : 1;
+                                for (ti = startIdx; ti !== endIdx; ti += step) {
+                                    tr = tracks[ti];
+                                    if (!tr || !tr.clips || !tr.clips.numItems) continue;
+                                    muted = false;
+                                    try { if (typeof tr.isMuted === 'function' && tr.isMuted()) muted = true; } catch (eM) {}
+                                    if (muted) continue;
+                                    for (ci = 0; ci < tr.clips.numItems; ci++) {
+                                        cl = tr.clips[ci];
+                                        if (!cl) continue;
+                                        stSec = timeToSeconds(cl.start);
+                                        enSec = timeToSeconds(cl.end);
+                                        if (stSec >= 0 && enSec > stSec && posSec >= (stSec - 0.0005) && posSec < (enSec - 0.0005)) {
+                                            pushTrackClip(cl);
+                                            if (ids.length) return;
+                                        }
+                                    }
+                                }
+                            }
+                            findClipAtPlayhead(seq.videoTracks, true);
+                            if (!ids.length) findClipAtPlayhead(seq.audioTracks, false);
+                            if (ids.length) fromPlayhead = true;
+                        }
+                    } catch (ePh) {}
+                }
+
+                return ok({
+                    found: ids.length > 0,
+                    reason: ids.length > 0 ? '' : 'noSelection',
+                    seqName: String(seq.name || ''),
+                    ids: ids,
+                    primaryId: ids.length ? ids[0] : '',
+                    primaryName: firstHolder.name,
+                    fromPlayhead: fromPlayhead
+                });
+            } catch (err) {
+                return fail(err);
+            }
+        }
+
         bindProjectEvents();
 
         return {
             pollTick: pollTick,
             getProjectTree: getProjectTree,
             getLabelPrefs: getLabelPrefs,
+            getItemUsage: getItemUsage,
+            jumpToSequenceTime: jumpToSequenceTime,
+            getTimelineSelection: getTimelineSelection,
             selectItems: selectItems,
             openItem: openItem,
             stopSourceMonitor: stopSourceMonitor,

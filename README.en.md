@@ -2,7 +2,7 @@
   <a href="./README.md">简体中文</a> | <strong>English</strong>
 </p>
 
-# PrBinView · Fast Single-Panel Media Bin Previewer for Premiere Pro (v1.3.8)
+# PrBinView · Fast Single-Panel Media Bin Previewer for Premiere Pro (v1.3.11)
 
 A pure **CEP 12 single-panel** media bin thumbnail preview extension for **Adobe Premiere Pro (2022–2027, primarily tested on Windows / basic macOS support)**.
 
@@ -32,9 +32,11 @@ Built to improve the browsing experience of Premiere Pro's built-in Project pane
   - Automatically detects and refreshes thumbnails and metadata when you perform **Replace Footage**, rename items, change label colors, or bring offline clips back online in the native Project panel.
 - **High-Speed Thumbnail Engine (Video, Pro Images & Vectors)**:
   - Fast keyframe extraction and viewport lazy-loading via FFmpeg for video and professional image formats (MP4 / MOV / MXF / MKV / PSD / TIFF / EXR, etc.), plus transparent thumbnail rendering for `.ai` / `.pdf` / `.eps` files.
-  - Supports 60fps hover scrubbing and switching between Grid and List views (sortable columns for Frame Rate, Media Start/End/Duration, Video/Audio Info, and customizable column widths).
-- **Common Native Project Panel Actions & Shortcuts**:
-  - Covers frequently used context menu actions for clips, sequences, and bins (Cut, Copy, Paste, Duplicate, Hide, Properties, Sequence Settings, Auto Reframe, Make Subclip, Replace Footage, Link Media, Make Offline, Edit Original / Edit in Adobe Audition / Edit in Adobe Photoshop, Export Media, etc.).
+  - Supports 60fps hover scrubbing (with automatic FFmpeg sprite fallback for ProRes / AE `.mov` files) and switching between Grid and List views (subtle column dividers, sortable columns for Frame Rate, Media Start/End/Duration, Usage, Video/Audio Info, and customizable column widths).
+- **Sequence Usage Jump & Timeline Reveal**:
+  - Premiere-style **Sequence Usage** badge and dropdown (`Sequence : Clip : Timecode`): click any entry to open that sequence and jump the playhead directly to the exact timecode; double-click strictly on the name text to rename inline, while double-clicking elsewhere still opens in Source Monitor.
+  - **Reveal Timeline Clip directly inside PrBinView (without opening the native Project panel)**: select a clip on the Timeline (or park the playhead over it) and press your Premiere Pro **`Reveal In Project`** shortcut (auto-synced from your active `.kys` preset, falling back to `Alt + F`; on Windows, toggleable via **`Quick Reveal: On / Off`** in the status bar, active only while Premiere Pro is focused and exiting automatically with Premiere) or click the topbar locate button to jump straight to its bin, center-scroll, and flash-highlight.
+  - Covers frequently used context menu actions for clips, sequences, and bins (New Bin, Import Files/Folders, Cut, Copy, Paste, Duplicate, Hide, Properties, Sequence Usage, Sequence Settings, Auto Reframe, Make Subclip, Replace Footage, Link Media, Make Offline, Edit Original / Edit in Adobe Audition / Edit in Adobe Photoshop, Export Media, etc.).
   - Arrow keys (`↑ / ↓ / ← / →`) navigate media items and bins directly inside the panel (`Shift + Arrows` for multi-select, `Space` to preview in Source Monitor, `Enter` to open/enter) without fighting the Timeline playhead; `Delete / Backspace` prompts only when selected clips are referenced in sequences.
 - **One-Click Chinese / English UI & Custom Label Color Sync**:
   - Click **`中 / EN`** in the top-right corner to toggle between Chinese and English UI (aligned with native Premiere Pro terminology).
@@ -44,8 +46,8 @@ Built to improve the browsing experience of Premiere Pro's built-in Project pane
 
 ### Windows (Recommended: One-Click Installer, No Node.js Required)
 1. Download and fully extract a release package from [Releases](https://github.com/CG-Bai/PrBinView/releases):
-   - **Windows Portable Edition (Recommended)**: `PrBinView-v1.3.8-win-ffmpeg.zip` (bundles a single `ffmpeg.exe` for out-of-the-box MXF / ProRes / PSD / EXR previews)
-   - **Lightweight Edition**: `PrBinView-v1.3.8.zip` (~140 KB, ideal if FFmpeg is already in your `PATH` or you only preview standard MP4 / MOV / Image / AI files)
+   - **Windows Portable Edition (Recommended)**: `PrBinView-v1.3.11-win-ffmpeg.zip` (bundles a single `ffmpeg.exe` for out-of-the-box MXF / ProRes / PSD / EXR previews)
+   - **Lightweight Edition**: `PrBinView-v1.3.11.zip` (~155 KB, ideal if FFmpeg is already in your `PATH` or you only preview standard MP4 / MOV / Image / AI files)
 2. Double-click **`一键安装_Windows.cmd`** (automatically copies the extension and enables Adobe CEP `PlayerDebugMode=1`).
 3. **Restart Premiere Pro**, then open **Window → Extensions → PrBinView · 媒体池预览**.
 
@@ -79,6 +81,7 @@ PrBinView looks for `ffmpeg` in the following order (only a single `ffmpeg.exe` 
 | `Ctrl + F` | Focus search box |
 | `Ctrl + A / X / C / V / D` | Select All / Cut / Copy / Paste / Duplicate |
 | `F5` / `Ctrl + R` | Refresh project tree and label color preferences |
+| `Alt + F` (auto-synced) | Reveal selected Timeline clip directly in PrBinView using your Premiere Pro "Reveal In Project" shortcut without opening the native Project panel (Windows capture toggleable via "Quick Reveal" in status bar) |
 | `Alt + ← / →` | Bin navigation history Back / Forward |
 | `Delete` / `Backspace` | Clear selected items from project (warns if used in sequences; never deletes files on disk) |
 | `Esc` | Close menu / modal / clear search |
@@ -99,8 +102,9 @@ reg delete HKCU\Software\Adobe\CSXS.12 /v PlayerDebugMode /f
   - `win-dialog.ps1`: Invokes native Windows `IFileOpenDialog` for modern multi-file / multi-folder pickers.
   - `render-vector.ps1`: Uses Windows WinRT PDF / Shell APIs to render `.ai` / `.pdf` / `.eps` thumbnails.
   - `pr-menu.ps1`: Uses Win32 Menu / UI Automation to trigger Premiere Pro's native **Link Media** and **Export Media** menus.
+  - `hotkey-watch.ps1`: Uses the standard Windows `RegisterHotKey` API to capture your synced Premiere Pro "Reveal In Project" shortcut only while Premiere Pro is the foreground window so Timeline clips reveal directly inside PrBinView without opening the native Project panel (releases immediately on focus loss, exits automatically when Premiere Pro closes, toggleable anytime via "Quick Reveal" in the status bar).
   - Because these scripts invoke `powershell.exe` and .NET/Win32 APIs, some antivirus tools may raise heuristic false positives. All helper scripts are plain text and fully inspectable.
-- **FFmpeg Notice**: This Git source repository and the lightweight release (`PrBinView-v1.3.8.zip`) do not contain FFmpeg binaries. The optional Windows Portable release (`PrBinView-v1.3.8-win-ffmpeg.zip`) bundles a single `ffmpeg.exe` (9.1 essentials from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), licensed under GPL-3.0, with `FFMPEG-LICENSE.txt` included in `PrBinView/bin/`).
+- **FFmpeg Notice**: This Git source repository and the lightweight release (`PrBinView-v1.3.11.zip`) do not contain FFmpeg binaries. The optional Windows Portable release (`PrBinView-v1.3.11-win-ffmpeg.zip`) bundles a single `ffmpeg.exe` (9.1 essentials from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), licensed under GPL-3.0, with `FFMPEG-LICENSE.txt` included in `PrBinView/bin/`).
 
 ## License & Disclaimer
 

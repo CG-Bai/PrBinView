@@ -430,14 +430,26 @@ button, input, select {
 }
 .tree-icon svg { width: var(--tree-icon, 15px); height: var(--tree-icon, 15px); }
 .tree-name {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--tree-font, 12px);
+  border-radius: 2px;
+  padding: 0 2px;
+  margin: 0 -2px;
+}
+.tree-name:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.tree-name.is-renaming {
+  flex: 1;
+  background: transparent;
 }
 .tree-count {
+  margin-left: auto;
   font-size: var(--tree-badge-font, 10px);
   font-variant-numeric: tabular-nums;
   padding: 0 5px;
@@ -608,12 +620,13 @@ button, input, select {
   padding: 0 9px;
   font-size: 11px;
   color: var(--text-secondary);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
   transition: background-color 0.08s ease, color 0.08s ease;
 }
+.col-th:last-child { border-right: 0; }
 .grid-scroll.is-list-mode .col-th {
   min-width: 0;
   overflow: hidden;
@@ -682,6 +695,24 @@ button, input, select {
   border-color: var(--accent);
   background: #242d3d;
   box-shadow: 0 0 0 1px var(--accent);
+}
+.card.is-reveal-flash {
+  animation: reveal-flash 1.05s ease-out;
+}
+@keyframes reveal-flash {
+  0% {
+    border-color: #6bc1ff;
+    box-shadow: 0 0 0 2px #58b6ff, 0 0 16px rgba(88, 182, 255, 0.55);
+    background: rgba(56, 152, 255, 0.36);
+  }
+  55% {
+    border-color: #4aa3ff;
+    box-shadow: 0 0 0 2px rgba(74, 163, 255, 0.72), 0 0 10px rgba(74, 163, 255, 0.32);
+  }
+  100% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
 }
 .card.is-dragging { opacity: 0.45; }
 .card.is-drop-target {
@@ -824,22 +855,68 @@ button, input, select {
   flex-shrink: 0;
 }
 .card-title {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
   font-size: 11.5px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  border-radius: 2px;
+  padding: 0 2px;
+  margin: 0 -2px;
 }
-.card-meta {
+.card-title:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.card-title.is-renaming {
+  flex: 1;
+  background: transparent;
+}
+.card-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   margin-top: 2px;
   padding-left: 11px;
+  min-width: 0;
+}
+.card-meta {
+  flex: 1;
+  min-width: 0;
   font-size: 10px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.usage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 3px;
+  border: 1px solid rgba(74, 163, 255, 0.36);
+  background: rgba(45, 132, 235, 0.16);
+  color: #8cc6ff;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.1s ease, color 0.1s ease, border-color 0.1s ease;
+}
+.usage-pill:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.usage-pill-caret {
+  font-size: 8.5px;
+  opacity: 0.85;
 }
 
 .inline-rename-input {
@@ -952,6 +1029,13 @@ button, input, select {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+.list-cell:last-child {
+  border-right: 0;
+}
+.list-cell.is-usage-cell {
+  justify-content: flex-start;
 }
 .list-cell.is-label-cell {
   justify-content: center;
@@ -1006,6 +1090,89 @@ button, input, select {
 .list-cell.is-offline-txt {
   color: #f0746c;
   font-weight: 600;
+}
+
+/* Premiere-style Sequence Usage Dropdown Popover */
+.usage-popover {
+  position: fixed;
+  z-index: 2300;
+  min-width: 280px;
+  max-width: min(520px, calc(100vw - 16px));
+  max-height: 280px;
+  overflow-y: auto;
+  background: #1e1f23;
+  border: 1px solid #484b54;
+  border-radius: 5px;
+  padding: 4px 0;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.68);
+}
+.usage-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 12px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 3px;
+}
+.usage-pop-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-pop-summary {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.usage-pop-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 11.5px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.usage-pop-item:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.usage-pop-main {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.usage-pop-track {
+  font-size: 10px;
+  font-family: "Consolas", "Segoe UI", monospace;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.usage-pop-item:hover .usage-pop-track {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+.usage-pop-empty {
+  padding: 10px 12px;
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 
 /* Column Visibility Popover */

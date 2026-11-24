@@ -25,6 +25,9 @@
       this.rafChunk = 0;
       this.renamingId = '';
       this.isDraggingInternal = false;
+      this._binTitleClickTimer = 0;
+      this._pendingRevealId = '';
+      this._pendingRevealFlash = false;
 
       /* Shared single hover-scrub overlay */
       this._scrubHost = null;
@@ -140,6 +143,13 @@
 
       this.gridEl.addEventListener('click', function (e) {
         if (self.renamingId) return;
+        var usageBtn = e.target.closest('.usage-pill');
+        if (usageBtn) {
+          e.stopPropagation();
+          var uCard = usageBtn.closest('.card');
+          if (uCard && self.cb.onShowUsage) self.cb.onShowUsage(uCard.dataset.id, usageBtn);
+          return;
+        }
         var actBtn = e.target.closest('.card-act');
         if (actBtn) {
           e.stopPropagation();
@@ -158,10 +168,19 @@
         var node = self.itemMap.get(id);
         if (!node) return;
 
-        /* Single-click any folder card enters it immediately (unless Ctrl/Shift multi-select) */
+        /* Single-click folder card enters it immediately; delay briefly when clicking the name text so double-click can rename */
         if (node.isBin && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
           self.stopScrub();
-          if (self.cb.onEnterFolder) self.cb.onEnterFolder(id);
+          clearTimeout(self._binTitleClickTimer);
+          self._binTitleClickTimer = 0;
+          if (e.target.closest('.card-title') && node.pid) {
+            self._binTitleClickTimer = setTimeout(function () {
+              self._binTitleClickTimer = 0;
+              if (!self.renamingId && self.cb.onEnterFolder) self.cb.onEnterFolder(id);
+            }, 220);
+          } else if (self.cb.onEnterFolder) {
+            self.cb.onEnterFolder(id);
+          }
           return;
         }
 
@@ -170,12 +189,23 @@
 
       this.gridEl.addEventListener('dblclick', function (e) {
         if (self.renamingId) return;
-        if (e.target.closest('.card-act')) return;
+        if (e.target.closest('.card-act, .usage-pill')) return;
         var card = e.target.closest('.card');
         if (!card) return;
         var id = card.dataset.id;
         var node = self.itemMap.get(id);
         if (!node) return;
+
+        /* Double-clicking strictly on the name text (.card-title) starts inline rename */
+        if (e.target.closest('.card-title') && node.pid) {
+          clearTimeout(self._binTitleClickTimer);
+          self._binTitleClickTimer = 0;
+          e.preventDefault();
+          e.stopPropagation();
+          if (self.cb.onRenameItem) self.cb.onRenameItem(id);
+          return;
+        }
+
         if (node.isBin) {
           if (self.cb.onEnterFolder) self.cb.onEnterFolder(id);
         } else {
@@ -390,10 +420,39 @@
       }
       this.syncSelectionClasses();
       if (scrollToFirst && ids && ids.length) {
-        var el = this.cardEls.get(ids[0]);
-        if (el && typeof el.scrollIntoView === 'function') {
+        this.revealItem(ids[0], false);
+      }
+    }
+
+    _focusRevealEl(el, flash) {
+      if (!el) return;
+      if (typeof el.scrollIntoView === 'function') {
+        try {
+          el.scrollIntoView({ block: 'center', inline: 'nearest' });
+        } catch (_) {
           el.scrollIntoView({ block: 'nearest' });
         }
+      }
+      if (flash) {
+        el.classList.remove('is-reveal-flash');
+        void el.offsetWidth;
+        el.classList.add('is-reveal-flash');
+        setTimeout(function () {
+          el.classList.remove('is-reveal-flash');
+        }, 1150);
+      }
+    }
+
+    revealItem(id, flash) {
+      if (!id) return;
+      var el = this.cardEls.get(id);
+      if (el && el.isConnected) {
+        this._pendingRevealId = '';
+        this._pendingRevealFlash = false;
+        this._focusRevealEl(el, !!flash);
+      } else if (this.itemMap.has(id)) {
+        this._pendingRevealId = id;
+        this._pendingRevealFlash = !!flash;
       }
     }
 
@@ -523,6 +582,7 @@
           var cells = card.querySelectorAll('.list-cell[data-col]');
           for (var i = 0; i < cells.length; i++) {
             var colId = cells[i].dataset.col;
+            if (colId === 'usage') continue;
             var txt = U.getColumnCellText(node, colId);
             cells[i].textContent = txt;
             cells[i].title = txt;
@@ -566,6 +626,8 @@
     setItems(items, selectedSet, opts) {
       var options = opts || {};
       this.stopScrub();
+      clearTimeout(this._binTitleClickTimer);
+      this._binTitleClickTimer = 0;
       if (this.rafChunk) { cancelAnimationFrame(this.rafChunk); this.rafChunk = 0; }
       if (this._observer) this._observer.disconnect();
 
@@ -573,6 +635,8 @@
       this.items = items || [];
       this.itemMap.clear();
       this.cardEls.clear();
+      this._pendingRevealId = options.revealId ? String(options.revealId) : '';
+      this._pendingRevealFlash = !!options.revealFlash;
       this.selected = new Set(selectedSet || []);
       this.gridEl.innerHTML = '';
 
@@ -587,11 +651,18 @@
       }
       this.emptyEl.classList.add('hidden');
 
+      var revealIdx = -1;
       for (var i = 0; i < this.items.length; i++) {
         this.itemMap.set(this.items[i].id, this.items[i]);
+        if (this._pendingRevealId && this.items[i].id === this._pendingRevealId) {
+          revealIdx = i;
+        }
       }
 
       var FIRST_BATCH = 96;
+      if (revealIdx >= FIRST_BATCH && revealIdx < 500) {
+        FIRST_BATCH = Math.min(this.items.length, revealIdx + 24);
+      }
       var CHUNK_SIZE = 80;
       var cursor = 0;
       var self = this;
@@ -601,15 +672,26 @@
         var frag = document.createDocumentFragment();
         var end = Math.min(self.items.length, cursor + limit);
         var toObserve = [];
+        var revealedEl = null;
         for (var idx = cursor; idx < end; idx++) {
           var node = self.items[idx];
           var card = self.viewMode === 'list' ? self._buildListRow(node) : self._buildCard(node);
           frag.appendChild(card);
           self.cardEls.set(node.id, card);
+          if (self._pendingRevealId && node.id === self._pendingRevealId) {
+            revealedEl = card;
+          }
           if (card.dataset.needThumb === '1') toObserve.push(card);
         }
         cursor = end;
         self.gridEl.appendChild(frag);
+
+        if (revealedEl) {
+          var doFlash = self._pendingRevealFlash;
+          self._pendingRevealId = '';
+          self._pendingRevealFlash = false;
+          self._focusRevealEl(revealedEl, doFlash);
+        }
 
         for (var k = 0; k < toObserve.length; k++) {
           if (self._observer) self._observer.observe(toObserve[k]);
@@ -711,17 +793,33 @@
       var title = document.createElement('span');
       title.className = 'card-title';
       title.textContent = node.name;
+      if (node.pid) title.title = node.name + ' (' + tr('card.dblRenameTitle') + ')';
       titleRow.appendChild(title);
 
       info.appendChild(titleRow);
 
+      var metaRow = document.createElement('div');
+      metaRow.className = 'card-meta-row';
       var meta = document.createElement('div');
       meta.className = 'card-meta';
       meta.textContent = this._gridMetaText(node);
-      info.appendChild(meta);
+      metaRow.appendChild(meta);
+      if (!node.isBin && node.up > 0) {
+        metaRow.appendChild(this._makeUsagePill(node));
+      }
+      info.appendChild(metaRow);
       card.appendChild(info);
 
       return card;
+    }
+
+    _makeUsagePill(node) {
+      var pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'usage-pill';
+      pill.title = tr('usage.badgeTitle', { n: node.up });
+      pill.innerHTML = '<span>' + String(node.up) + '</span><span class="usage-pill-caret">▾</span>';
+      return pill;
     }
 
     _buildListRow(node) {
@@ -778,7 +876,12 @@
           var title = document.createElement('span');
           title.className = 'card-title';
           title.textContent = node.name;
+          if (node.pid) title.title = node.name + ' (' + tr('card.dblRenameTitle') + ')';
           nCell.appendChild(title);
+
+          if (!node.isBin && node.up > 0) {
+            nCell.appendChild(this._makeUsagePill(node));
+          }
 
           if (!node.isBin) {
             var acts = document.createElement('div');
@@ -789,6 +892,16 @@
             nCell.appendChild(acts);
           }
           row.appendChild(nCell);
+        } else if (col.id === 'usage') {
+          var uCell = document.createElement('div');
+          uCell.className = 'list-cell is-usage-cell';
+          uCell.dataset.col = 'usage';
+          if (!node.isBin && node.up > 0) {
+            uCell.appendChild(this._makeUsagePill(node));
+          } else if (!node.isBin) {
+            uCell.textContent = '—';
+          }
+          row.appendChild(uCell);
         } else {
           var cell = document.createElement('div');
           var txt = U.getColumnCellText(node, col.id);
@@ -994,6 +1107,7 @@
       this.stopScrub();
       this.renamingId = id;
       card.setAttribute('draggable', 'false');
+      titleEl.classList.add('is-renaming');
 
       var input = document.createElement('input');
       input.type = 'text';
@@ -1009,6 +1123,7 @@
         settled = true;
         self.renamingId = '';
         card.setAttribute('draggable', 'true');
+        titleEl.classList.remove('is-renaming');
         var nextName = input.value.trim();
         titleEl.textContent = commit && nextName ? nextName : node.name;
         if (commit && nextName && nextName !== node.name && onCommit) {

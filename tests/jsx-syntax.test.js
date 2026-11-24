@@ -692,3 +692,181 @@ test('jsx/host.jsx getLabelPrefs reads live app.properties custom label names, c
   assert.equal(res.data.presetName, 'MyCustomPalette');
   assert.equal(res.data.appVersion, '27.0.0');
 });
+
+test('jsx/host.jsx tracks sequence usage counts, formats timecodes, jumps to sequence time, and bumps usageSig', function () {
+  var env = createMockPremiereSandbox();
+  var H = env.host;
+  var app = env.state.app;
+  var clip3 = env.state.clipVideo;
+  var seq1 = app.project.sequences[0];
+
+  function wrapList(items, propName) {
+    var obj = {};
+    obj[propName] = items.length;
+    return new Proxy(obj, {
+      get: function (t, p) {
+        if (p === propName) return items.length;
+        var idx = Number(p);
+        return Number.isInteger(idx) ? items[idx] : t[p];
+      }
+    });
+  }
+
+  var jumpedTicks = '';
+  var selectedLog = [];
+  var vClips1 = [
+    {
+      name: 'background02.mp4',
+      projectItem: clip3,
+      start: { ticks: '1270080000000', seconds: 5 }, /* 00:00:05:00 at 25fps */
+      setSelected: function (v) { selectedLog.push({ seq: 1, track: 'V1', val: v }); }
+    }
+  ];
+  var aClips1 = [
+    {
+      name: 'background02.mp4',
+      projectItem: clip3,
+      start: { ticks: '1270080000000', seconds: 5 },
+      setSelected: function (v) { selectedLog.push({ seq: 1, track: 'A1', val: v }); }
+    }
+  ];
+  seq1.timebase = '10160640000'; /* 25fps */
+  seq1.zeroPoint = '0';
+  seq1.getSettings = function () { return { videoDisplayFormat: 101 }; }; /* 25fps NDF */
+  seq1.videoTracks = wrapList([{ clips: wrapList(vClips1, 'numItems') }], 'numTracks');
+  seq1.audioTracks = wrapList([{ clips: wrapList(aClips1, 'numItems') }], 'numTracks');
+  seq1.setPlayerPosition = function (ticksStr) { jumpedTicks = ticksStr; };
+
+  /* Add a second 29.97fps drop-frame sequence with two placements (at 0s and 3s + 1 frame) */
+  var seq2Item = app.project.rootItem.createBin('TempSeqHost');
+  var seq2 = app.project.createNewSequenceFromClips('序列2', [clip3], seq2Item);
+  var tb2997 = 8475667200; /* 254016000000 / (30000/1001) */
+  var ticks3s1f = String(Math.round(91 * tb2997));
+  var vClips2 = [
+    { name: 'background02.mp4', projectItem: clip3, start: { ticks: ticks3s1f, seconds: 3.036 }, setSelected: function () {} },
+    { name: 'background02.mp4', projectItem: clip3, start: { ticks: '0', seconds: 0 }, setSelected: function () {} }
+  ];
+  seq2.timebase = String(tb2997);
+  seq2.zeroPoint = '0';
+  seq2.getSettings = function () { return { videoDisplayFormat: 102 }; }; /* 29.97 DF */
+  seq2.videoTracks = wrapList([{ clips: wrapList(vClips2, 'numItems') }], 'numTracks');
+  seq2.audioTracks = wrapList([], 'numTracks');
+  var seq2Jumped = '';
+  seq2.setPlayerPosition = function (ticksStr) { seq2Jumped = ticksStr; };
+
+  /* 1. getProjectTree exposes uv=3, ua=1, up=3 for clip '3' */
+  var tree = JSON.parse(H.getProjectTree());
+  assert.equal(tree.ok, true);
+  var node3 = tree.data.nodes.find(function (n) { return n.id === '3'; });
+  assert.equal(node3.uv, 3);
+  assert.equal(node3.ua, 1);
+  assert.equal(node3.up, 3);
+
+  /* 2. getItemUsage merges V1+A1 at identical startTicks and sorts per-sequence entries ascending */
+  var usage = JSON.parse(H.getItemUsage({ id: '3' }));
+  assert.equal(usage.ok, true);
+  assert.equal(usage.data.videoCount, 3);
+  assert.equal(usage.data.audioCount, 1);
+  assert.equal(usage.data.entries.length, 3);
+  assert.equal(usage.data.entries[0].seqName, '主序列');
+  assert.equal(usage.data.entries[0].timecode, '00:00:05:00');
+  assert.equal(usage.data.entries[0].tracks, 'V1+A1');
+  assert.equal(usage.data.entries[1].seqName, '序列2');
+  assert.equal(usage.data.entries[1].timecode, '00;00;00;00');
+  assert.equal(usage.data.entries[2].timecode, '00;00;03;01');
+
+  /* 3. jumpToSequenceTime opens target sequence, moves playhead via setPlayerPosition, and selects clip */
+  var jumpRes = JSON.parse(H.jumpToSequenceTime(usage.data.entries[0]));
+  assert.equal(jumpRes.ok, true);
+  assert.equal(jumpRes.data.jumped, true);
+  assert.equal(jumpedTicks, '1270080000000');
+  assert.equal(selectedLog.some(function (x) { return x.track === 'V1' && x.val === true; }), true);
+
+  var jumpRes2 = JSON.parse(H.jumpToSequenceTime(usage.data.entries[2]));
+  assert.equal(jumpRes2.ok, true);
+  assert.equal(seq2Jumped, ticks3s1f);
+  assert.equal(env.state.openedSeqs.indexOf(seq2.sequenceID) !== -1, true);
+
+  /* 4. pollTick({ wantSig: true }) detects timeline clip count mutations via usageSig */
+  var sig1 = JSON.parse(H.pollTick({ folderId: '2', wantSig: true })).data.usageSig;
+  assert.ok(sig1 && sig1.length > 0);
+  vClips2.push({ name: 'background02.mp4', projectItem: clip3, start: { ticks: '2540160000000', seconds: 10 } });
+  var sig2 = JSON.parse(H.pollTick({ folderId: '2', wantSig: true })).data.usageSig;
+  assert.notEqual(sig2, sig1);
+});
+
+test('jsx/host.jsx getTimelineSelection resolves selected Timeline clips and falls back to playhead clip', function () {
+  var env = createMockPremiereSandbox();
+  var H = env.host;
+  var app = env.state.app;
+  var clip3 = env.state.clipVideo;
+  var clip4 = app.project.rootItem.children[0].children[1]; /* BGM.wav */
+  var activeSeq = app.project.activeSequence;
+
+  function wrapList(items, propName) {
+    var obj = {};
+    obj[propName] = items.length;
+    return new Proxy(obj, {
+      get: function (t, p) {
+        if (p === propName) return items.length;
+        var idx = Number(p);
+        return Number.isInteger(idx) ? items[idx] : t[p];
+      }
+    });
+  }
+
+  /* 1. Active getSelection() deduplicates linked Video+Audio and puts Video clip first */
+  activeSeq.getSelection = function () {
+    return [
+      { mediaType: 'Audio', name: 'BGM.wav', projectItem: clip4 },
+      { mediaType: 'Video', name: 'A.mp4', projectItem: clip3 },
+      { mediaType: 'Audio', name: 'A.mp4', projectItem: clip3 }
+    ];
+  };
+  var r1 = JSON.parse(H.getTimelineSelection());
+  assert.equal(r1.ok, true);
+  assert.equal(r1.data.found, true);
+  assert.equal(r1.data.fromPlayhead, false);
+  assert.equal(r1.data.primaryId, '3');
+  assert.deepEqual(r1.data.ids, ['3', '4']);
+
+  /* 2. Fallback to clip.isSelected() when getSelection() returns empty */
+  activeSeq.getSelection = function () { return []; };
+  var vClips = [
+    { name: 'A.mp4', projectItem: clip3, start: { seconds: 0 }, end: { seconds: 8 }, isSelected: function () { return false; } }
+  ];
+  var aClips = [
+    { name: 'BGM.wav', projectItem: clip4, start: { seconds: 2 }, end: { seconds: 15 }, isSelected: function () { return true; } }
+  ];
+  activeSeq.videoTracks = wrapList([{ isMuted: function () { return false; }, clips: wrapList(vClips, 'numItems') }], 'numTracks');
+  activeSeq.audioTracks = wrapList([{ isMuted: function () { return false; }, clips: wrapList(aClips, 'numItems') }], 'numTracks');
+
+  var r2 = JSON.parse(H.getTimelineSelection());
+  assert.equal(r2.ok, true);
+  assert.equal(r2.data.found, true);
+  assert.equal(r2.data.fromPlayhead, false);
+  assert.equal(r2.data.primaryId, '4');
+
+  /* 3. Smart playhead fallback when nothing is selected (player at 5s -> hits clip3 on V1) */
+  aClips[0].isSelected = function () { return false; };
+  activeSeq.getPlayerPosition = function () { return { seconds: 5 }; };
+  var r3 = JSON.parse(H.getTimelineSelection());
+  assert.equal(r3.ok, true);
+  assert.equal(r3.data.found, true);
+  assert.equal(r3.data.fromPlayhead, true);
+  assert.equal(r3.data.primaryId, '3');
+
+  /* 4. Empty area under playhead -> found: false, reason: 'noSelection' */
+  activeSeq.getPlayerPosition = function () { return { seconds: 99 }; };
+  var r4 = JSON.parse(H.getTimelineSelection());
+  assert.equal(r4.ok, true);
+  assert.equal(r4.data.found, false);
+  assert.equal(r4.data.reason, 'noSelection');
+
+  /* 5. No active sequence -> found: false, reason: 'noSequence' */
+  app.project.activeSequence = null;
+  var r5 = JSON.parse(H.getTimelineSelection());
+  assert.equal(r5.ok, true);
+  assert.equal(r5.data.found, false);
+  assert.equal(r5.data.reason, 'noSequence');
+});

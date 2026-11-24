@@ -340,3 +340,65 @@ test('Premiere label prefs parser auto-detects BGR/ARGB/RGBA/Hex colors, parses 
   assert.equal(U.labelColor(6), U.DEFAULT_LABEL_COLORS[6].color);
   assert.equal(U.labelName(6), '玫瑰红');
 });
+
+test('Premiere .kys shortcut parser decodes virtualkeys, finds active preset, and extracts Reveal In Project binding', function () {
+  /* 1. Standard 0x80000000 + ASCII virtualkeys and Premiere internal function keys */
+  var keyF = U.decodePremiereVirtualKey('2147483718'); /* 0x80000000 + 'F'(70) */
+  assert.equal(keyF.vk, 70);
+  assert.equal(keyF.keyLabel, 'F');
+  assert.equal(keyF.domKey, 'f');
+
+  var key5 = U.decodePremiereVirtualKey('2147483701'); /* 0x80000000 + '5'(53) */
+  assert.equal(key5.vk, 53);
+  assert.equal(key5.keyLabel, '5');
+
+  var keyF5 = U.decodePremiereVirtualKey('11'); /* Premiere F5 */
+  assert.equal(keyF5.vk, 116);
+  assert.equal(keyF5.keyLabel, 'F5');
+  assert.equal(keyF5.isFunc, true);
+
+  var keyF8 = U.decodePremiereVirtualKey('14'); /* Premiere F8 */
+  assert.equal(keyF8.vk, 119);
+  assert.equal(keyF8.keyLabel, 'F8');
+
+  /* 2. Parse Reveal In Project with Alt+F while ignoring unrelated Reveal commands */
+  var kysAltF = '<PremiereData><context.global>' +
+    '<item.1 Version="1"><virtualkey>2147483717</virtualkey><modifier.ctrl>true</modifier.ctrl><modifier.alt>false</modifier.alt><modifier.shift>false</modifier.shift><commandname>cmd.edit.revealinexplorer</commandname></item.1>' +
+    '<item.2 Version="1"><virtualkey>2147483718</virtualkey><modifier.ctrl>false</modifier.ctrl><modifier.alt>true</modifier.alt><modifier.shift>false</modifier.shift><commandname>cmd.edit.revealinproject</commandname></item.2>' +
+    '</context.global></PremiereData>';
+  var p1 = U.parsePremiereKysRevealShortcut(kysAltF, 'DaVinci Resolve (pr快捷键)');
+  assert.ok(p1);
+  assert.equal(p1.label, 'Alt+F');
+  assert.equal(p1.vk, 70);
+  assert.equal(p1.winMods, 1);
+  assert.equal(p1.alt, true);
+  assert.equal(p1.ctrl, false);
+  assert.equal(p1.shift, false);
+
+  /* 3. Custom Ctrl+Shift+R binding */
+  var kysCustom = '<PremiereData><item.9 Version="1">' +
+    '<virtualkey>2147483730</virtualkey>' + /* 'R' = 82 */
+    '<modifier.ctrl>true</modifier.ctrl><modifier.alt>false</modifier.alt><modifier.shift>true</modifier.shift>' +
+    '<commandname>cmd.clip.reveal.in.project</commandname></item.9></PremiereData>';
+  var p2 = U.parsePremiereKysRevealShortcut(kysCustom, 'MyCustom');
+  assert.ok(p2);
+  assert.equal(p2.label, 'Ctrl+Shift+R');
+  assert.equal(p2.vk, 82);
+  assert.equal(p2.winMods, 6); /* MOD_CONTROL(2) | MOD_SHIFT(4) */
+
+  /* 4. Bare function key F8 is accepted, bare letter without modifier is safely ignored */
+  var kysF8 = '<PremiereData><item.1 Version="1"><virtualkey>14</virtualkey><modifier.ctrl>false</modifier.ctrl><modifier.alt>false</modifier.alt><modifier.shift>false</modifier.shift><commandname>clip.revealInProject</commandname></item.1></PremiereData>';
+  var p3 = U.parsePremiereKysRevealShortcut(kysF8, 'FnPreset');
+  assert.ok(p3);
+  assert.equal(p3.label, 'F8');
+  assert.equal(p3.winMods, 0);
+  assert.equal(p3.vk, 119);
+
+  var kysBareLetter = '<PremiereData><item.1 Version="1"><virtualkey>2147483718</virtualkey><modifier.ctrl>false</modifier.ctrl><modifier.alt>false</modifier.alt><modifier.shift>false</modifier.shift><commandname>cmd.edit.revealinproject</commandname></item.1></PremiereData>';
+  assert.equal(U.parsePremiereKysRevealShortcut(kysBareLetter, 'Bare'), null);
+
+  /* 5. Match active .kys filename from Adobe Premiere Pro Prefs XML (including Chinese names) */
+  var prefsXml = '<Properties><FE.Prefs.ActiveKeyboardShortcutPreset>DaVinci Resolve (pr快捷键)</FE.Prefs.ActiveKeyboardShortcutPreset></Properties>';
+  var active = U.findActiveKysFromPrefs(prefsXml, ['Adobe Premiere Pro Defaults.kys', 'DaVinci Resolve (pr快捷键).kys']);
+  assert.equal(active, 'DaVinci Resolve (pr快捷键).kys');
+});

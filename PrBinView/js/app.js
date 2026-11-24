@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var PLUGIN_VERSION = '1.3.8';
+  var PLUGIN_VERSION = '1.3.11';
   var U = window.PrUtils;
   var I18n = window.PrI18n;
   var t = function (key, vars) { return I18n ? I18n.t(key, vars) : key; };
@@ -22,6 +22,7 @@
     rootCount: -1,
     folderSig: '',
     selSig: '',
+    usageSig: '',
     lastSigSelKey: '',
     index: null,
     offlineIds: [],
@@ -46,6 +47,8 @@
     sidebarOpen: true,
     sidebarManual: false,
     followSync: true,
+    altFHotkey: true,
+    revealShortcut: Object.assign({}, U.DEFAULT_REVEAL_SHORTCUT),
     viewHidden: false,
     lastFocusPane: 'grid',
 
@@ -53,6 +56,7 @@
     polling: false,
     menuOpen: false,
     colPopoverOpen: false,
+    usagePopoverOpen: false,
     modalOpen: false,
     lastHostSelKey: '',
     suppressSyncUntil: 0
@@ -65,6 +69,9 @@
   var hiddenIds = new Set();
   var submenuCloseTimer = 0;
   var activeSubmenuBtn = null;
+  var usagePopoverTicket = 0;
+  var usagePopoverItemId = '';
+  var usagePopoverAnchor = null;
   var columnsConfig = U.MEDIA_COLUMNS.map(function (c) { return Object.assign({}, c); });
   var pollTimer = 0;
   var searchTimer = 0;
@@ -77,7 +84,10 @@
   var lastSigCheckAt = 0;
   var lastLabelSyncAt = 0;
   var labelSyncing = false;
+  var lastShortcutSyncAt = 0;
+  var shortcutSyncing = false;
   var arrowHostSyncTimer = 0;
+  var lastRevealAt = 0;
 
   var treeView = null;
   var gridView = null;
@@ -163,12 +173,9 @@
     $('btn-search-clear').title = t('top.searchClear');
     $('toggle-global-search').textContent = t('top.globalSearch');
     $('toggle-global-search').title = t('top.globalSearchTitle');
-    $('btn-new-bin').innerHTML = U.ICONS.plus + '<span>' + U.escapeHtml(t('top.newBin')) + '</span>';
-    $('btn-new-bin').title = t('top.newBinTitle');
-    $('btn-import').innerHTML = U.ICONS.importFile + '<span>' + U.escapeHtml(t('top.import')) + '</span>';
-    $('btn-import').title = t('top.importTitle');
-    $('btn-import-folder').innerHTML = U.ICONS.importFolder + '<span>' + U.escapeHtml(t('top.importFolder')) + '</span>';
-    $('btn-import-folder').title = t('top.importFolderTitle');
+    var revealBtn = $('btn-reveal-timeline');
+    var scLabel = (state.revealShortcut && state.revealShortcut.label) || 'Alt+F';
+    if (revealBtn) revealBtn.title = t('top.revealTimelineTitle', { key: scLabel });
     $('btn-refresh').title = t('top.refreshTitle');
     var demoText = $('demo-strip-text');
     if (demoText) demoText.textContent = t('top.demoNotice');
@@ -215,6 +222,13 @@
     }
     $('btn-sync-toggle').title = t('status.syncTitle');
     $('sync-label').textContent = state.followSync ? t('status.syncOn') : t('status.syncPaused');
+    var hotkeyBtn = $('btn-hotkey-toggle');
+    if (hotkeyBtn) {
+      hotkeyBtn.title = t('status.hotkeyTitle', { key: scLabel });
+      hotkeyBtn.classList.toggle('is-active', !!state.altFHotkey);
+    }
+    var hotkeyLbl = $('hotkey-label');
+    if (hotkeyLbl) hotkeyLbl.textContent = state.altFHotkey ? t('status.hotkeyOn') : t('status.hotkeyOff');
     $('btn-clear-cache').textContent = t('status.clearCache');
     $('btn-clear-cache').title = t('status.clearCacheTitle');
     var stSizeLbl = $('status-size-label');
@@ -240,6 +254,7 @@
     } else {
       closeContextMenu();
       closeColPopover();
+      closeUsagePopover();
       updateProjectPill();
       updateEngineBadge();
       if (treeView && state.index) treeView.render();
@@ -341,7 +356,11 @@
     treeView.setActive(state.folderId);
     renderBreadcrumbs();
     updateNavButtons();
-    renderCurrentFolder({ preserveScroll: !!options.preserveScroll });
+    renderCurrentFolder({
+      preserveScroll: !!options.preserveScroll,
+      revealId: options.revealId || '',
+      revealFlash: !!options.revealFlash
+    });
 
     if (options.pushToHost !== false && state.followSync && state.hasProject) {
       pushHostSelection(target.pid ? [folderId] : []);
@@ -533,6 +552,7 @@
   function toggleColPopover() {
     if (state.colPopoverOpen) { closeColPopover(); return; }
     closeContextMenu();
+    closeUsagePopover();
     var pop = $('col-popover');
     pop.innerHTML = '';
 
@@ -585,6 +605,148 @@
     var top = Math.min(anchor.bottom + 4, window.innerHeight - rect.height - 8);
     pop.style.left = left + 'px';
     pop.style.top = top + 'px';
+  }
+
+  function closeUsagePopover() {
+    usagePopoverTicket += 1;
+    state.usagePopoverOpen = false;
+    usagePopoverItemId = '';
+    usagePopoverAnchor = null;
+    var pop = $('usage-popover');
+    if (pop) {
+      pop.classList.add('hidden');
+      pop.innerHTML = '';
+    }
+  }
+
+  function positionUsagePopover(pop, anchorOrPoint) {
+    if (!pop) return;
+    var rect = pop.getBoundingClientRect();
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var left = 8;
+    var top = 8;
+    if (anchorOrPoint && anchorOrPoint.nodeType === 1 && anchorOrPoint.isConnected) {
+      var aRect = anchorOrPoint.getBoundingClientRect();
+      left = Math.max(8, Math.min(aRect.left, vw - rect.width - 8));
+      var below = aRect.bottom + 4;
+      var above = aRect.top - rect.height - 4;
+      if (below + rect.height <= vh - 8 || below <= vh - aRect.top) {
+        top = Math.max(8, Math.min(below, vh - rect.height - 8));
+      } else {
+        top = Math.max(8, above);
+      }
+    } else if (anchorOrPoint && typeof anchorOrPoint.x === 'number') {
+      left = Math.max(8, Math.min(anchorOrPoint.x, vw - rect.width - 8));
+      top = Math.max(8, Math.min(anchorOrPoint.y, vh - rect.height - 8));
+    }
+    pop.style.left = Math.round(left) + 'px';
+    pop.style.top = Math.round(top) + 'px';
+  }
+
+  async function openUsagePopover(itemId, anchorOrPoint) {
+    var pop = $('usage-popover');
+    if (!pop || !itemId || !state.hasProject || !state.index) return;
+    var anchorEl = (anchorOrPoint && anchorOrPoint.nodeType === 1) ? anchorOrPoint : null;
+    if (anchorEl && state.usagePopoverOpen && usagePopoverItemId === itemId && usagePopoverAnchor === anchorEl) {
+      closeUsagePopover();
+      return;
+    }
+
+    closeContextMenu();
+    closeColPopover();
+    closeUsagePopover();
+
+    var ticket = ++usagePopoverTicket;
+    state.usagePopoverOpen = true;
+    usagePopoverItemId = itemId;
+    usagePopoverAnchor = anchorEl;
+
+    var node = state.index.nodes.get(itemId);
+    pop.innerHTML = '<div class="usage-pop-empty">' + U.escapeHtml(t('usage.loading')) + '</div>';
+    pop.classList.remove('hidden');
+    positionUsagePopover(pop, anchorOrPoint);
+
+    try {
+      var res = await bridge.getItemUsage(itemId);
+      if (!state.usagePopoverOpen || ticket !== usagePopoverTicket) return;
+
+      var entries = (res && Array.isArray(res.entries)) ? res.entries : [];
+      var videoCount = (res && typeof res.videoCount === 'number') ? res.videoCount : 0;
+      var audioCount = (res && typeof res.audioCount === 'number') ? res.audioCount : 0;
+      var itemName = (res && res.name) || (node ? node.name : '');
+
+      pop.innerHTML = '';
+
+      var head = document.createElement('div');
+      head.className = 'usage-pop-head';
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'usage-pop-name';
+      nameSpan.textContent = itemName;
+      nameSpan.title = itemName;
+      head.appendChild(nameSpan);
+
+      var summaryText = '';
+      if (videoCount > 0 && audioCount > 0) {
+        summaryText = t('usage.summaryBoth', { v: videoCount, a: audioCount });
+      } else if (videoCount > 0) {
+        summaryText = t('usage.summaryVideo', { n: videoCount });
+      } else if (audioCount > 0) {
+        summaryText = t('usage.summaryAudio', { n: audioCount });
+      }
+      if (summaryText) {
+        var sumSpan = document.createElement('span');
+        sumSpan.className = 'usage-pop-summary';
+        sumSpan.textContent = summaryText;
+        head.appendChild(sumSpan);
+      }
+      pop.appendChild(head);
+
+      if (!entries.length) {
+        var empty = document.createElement('div');
+        empty.className = 'usage-pop-empty';
+        empty.textContent = t('usage.none');
+        pop.appendChild(empty);
+      } else {
+        for (var i = 0; i < entries.length; i++) {
+          (function (entry) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'usage-pop-item';
+            var clipLabel = entry.clipName || itemName;
+            var mainText = entry.seqName + ' : ' + clipLabel + ' : ' + entry.timecode;
+            btn.title = t('usage.rowTitle', { seq: entry.seqName, tc: entry.timecode, tracks: entry.tracks || '' });
+
+            var mainSpan = document.createElement('span');
+            mainSpan.className = 'usage-pop-main';
+            mainSpan.textContent = mainText;
+            btn.appendChild(mainSpan);
+
+            if (entry.tracks) {
+              var trSpan = document.createElement('span');
+              trSpan.className = 'usage-pop-track';
+              trSpan.textContent = entry.tracks;
+              btn.appendChild(trSpan);
+            }
+
+            btn.addEventListener('click', function () {
+              closeUsagePopover();
+              runAction(
+                function () { return bridge.jumpToSequenceTime(entry); },
+                t('usage.jumped', { seq: entry.seqName, tc: entry.timecode })
+              );
+            });
+            pop.appendChild(btn);
+          })(entries[i]);
+        }
+      }
+
+      positionUsagePopover(pop, anchorOrPoint);
+    } catch (err) {
+      if (!state.usagePopoverOpen || ticket !== usagePopoverTicket) return;
+      pop.innerHTML = '<div class="usage-pop-empty">' + U.escapeHtml((err && err.message) || String(err)) + '</div>';
+      positionUsagePopover(pop, anchorOrPoint);
+    }
   }
 
   function ensureFolderMetadata(items) {
@@ -663,6 +825,8 @@
 
     gridView.setItems(items, state.selected, {
       preserveScroll: !!(opts && opts.preserveScroll),
+      revealId: (opts && opts.revealId) || '',
+      revealFlash: !!(opts && opts.revealFlash),
       emptyHtml: emptyHtml
     });
     updateCounters(items.length);
@@ -705,6 +869,7 @@
     if (!silent) {
       setStatus(t('msg.syncing'));
       syncLabelPrefs(true);
+      syncRevealShortcut(true);
     }
 
     try {
@@ -716,6 +881,7 @@
         state.projectPath = '';
         state.folderSig = '';
         state.selSig = '';
+        state.usageSig = '';
         state.lastSigSelKey = '';
         state.index = null;
         state.offlineIds = [];
@@ -743,6 +909,7 @@
       state.dirtySeq = tree.dirtySeq;
       state.folderSig = '';
       state.selSig = '';
+      if (projectSwitched) state.usageSig = '';
       lastSigCheckAt = 0;
       state.index = U.buildTreeIndex(tree.nodes, tree.rootId);
 
@@ -821,7 +988,7 @@
   }
 
   async function pollOnce() {
-    if (document.hidden || state.polling || state.busy || reconcilingDrop || state.modalOpen || state.menuOpen || isAnyInternalDrag() || gridView.renamingId || treeView.renamingId) {
+    if (document.hidden || state.polling || state.busy || reconcilingDrop || state.modalOpen || state.menuOpen || state.usagePopoverOpen || isAnyInternalDrag() || gridView.renamingId || treeView.renamingId) {
       return;
     }
     state.polling = true;
@@ -848,6 +1015,9 @@
 
       if (state.hasProject && ((now - lastLabelSyncAt) >= 6000)) {
         syncLabelPrefs(false);
+      }
+      if (state.hasProject && ((now - lastShortcutSyncAt) >= 6000)) {
+        syncRevealShortcut(false);
       }
 
       var tick = await bridge.pollTick(state.folderId, offlineBatch, wantSig);
@@ -885,13 +1055,23 @@
         state.selSig = tick.selSig;
       }
 
-      if (tick.docId !== state.docId || tick.dirtySeq !== state.dirtySeq || tick.rootCount !== state.rootCount || folderCountChanged || tick.cameOnline || folderSigChanged || selSigChanged) {
+      var usageSigChanged = false;
+      if (tick.usageSig) {
+        if (state.usageSig && tick.usageSig !== state.usageSig) {
+          usageSigChanged = true;
+        }
+        state.usageSig = tick.usageSig;
+      }
+
+      if (tick.docId !== state.docId || tick.dirtySeq !== state.dirtySeq || tick.rootCount !== state.rootCount || folderCountChanged || tick.cameOnline || folderSigChanged || selSigChanged || usageSigChanged) {
         var keepFolderSig = tick.folderSig || '';
         var keepSelSig = tick.selSig || '';
+        var keepUsageSig = tick.usageSig || '';
         var keepSelKey = selKey;
         await refreshProject({ silent: true, force: true });
         if (keepFolderSig) state.folderSig = keepFolderSig;
         if (keepSelSig) { state.selSig = keepSelSig; state.lastSigSelKey = keepSelKey; }
+        if (keepUsageSig) state.usageSig = keepUsageSig;
       }
 
       if (!state.followSync || !state.index || Date.now() < state.suppressSyncUntil) return;
@@ -920,18 +1100,196 @@
         }
       } else {
         /* Clicked a clip/sequence in Premiere's Project panel -> switch to its folder & highlight it */
-        var parentBin = primary.pid || state.index.rootId;
-        state.selected = new Set(sel);
-        if (state.folderId !== parentBin) {
-          navigateToFolder(parentBin, { pushToHost: false, keepSelection: true });
-        }
-        gridView.setSelection(sel, true);
-        updateCounters(gridView.items.length);
+        revealNodesInPanel(sel, { flash: false, fromHostSync: true });
       }
     } catch (_) {
       /* Ignore transient poll errors while Pr is busy (e.g. modal dialog open in Pr) */
     } finally {
       state.polling = false;
+    }
+  }
+
+  function revealNodesInPanel(ids, opts) {
+    var options = opts || {};
+    if (!state.index || !Array.isArray(ids) || !ids.length) return null;
+    var primary = null;
+    for (var i = 0; i < ids.length; i++) {
+      var candidate = state.index.nodes.get(ids[i]);
+      if (candidate && !candidate.isBin) {
+        primary = candidate;
+        break;
+      }
+    }
+    if (!primary) return null;
+
+    var parentBin = primary.pid || state.index.rootId;
+    var filterChanged = false;
+
+    if (state.query) {
+      state.query = '';
+      var sIn = $('search-input');
+      if (sIn) sIn.value = '';
+      var sClr = $('btn-search-clear');
+      if (sClr) sClr.classList.add('hidden');
+      filterChanged = true;
+    }
+    if (state.typeFilter !== 'all' && primary.kind !== state.typeFilter) {
+      state.typeFilter = 'all';
+      var tf = $('type-filters');
+      if (tf) {
+        var chips = tf.querySelectorAll('.chip');
+        for (var c = 0; c < chips.length; c++) {
+          chips[c].classList.toggle('is-active', (chips[c].dataset.type || 'all') === 'all');
+        }
+      }
+      filterChanged = true;
+    }
+    if (hiddenIds.has(primary.id) && !state.viewHidden) {
+      state.viewHidden = true;
+      if (treeView) treeView.setHiddenFilter(hiddenIds, true);
+      filterChanged = true;
+    }
+
+    var matched = [];
+    for (var j = 0; j < ids.length; j++) {
+      var nd = state.index.nodes.get(ids[j]);
+      if (nd && !nd.isBin && (nd.pid || state.index.rootId) === parentBin) {
+        if (matched.indexOf(nd.id) === -1) matched.push(nd.id);
+      }
+    }
+    if (matched.indexOf(primary.id) === -1) matched.unshift(primary.id);
+
+    state.selected = new Set(matched);
+    if (state.folderId !== parentBin || filterChanged) {
+      navigateToFolder(parentBin, {
+        pushToHost: false,
+        keepSelection: true,
+        revealId: primary.id,
+        revealFlash: !!options.flash
+      });
+    } else {
+      gridView.setSelection(matched, false);
+      gridView.revealItem(primary.id, !!options.flash);
+      updateCounters(gridView.items.length);
+    }
+    return primary;
+  }
+
+  async function actionRevealTimelineClip() {
+    var now = Date.now();
+    if ((now - lastRevealAt) < 150) return;
+    lastRevealAt = now;
+
+    if (!state.hasProject) {
+      setStatus(t('msg.openProjectFirst'), true);
+      return;
+    }
+    closeContextMenu();
+    closeColPopover();
+    closeUsagePopover();
+
+    try {
+      var res = await bridge.getTimelineSelection();
+      if (!res || !res.found || !res.primaryId) {
+        setStatus(t(res && res.reason === 'noSequence' ? 'msg.revealNoSeq' : 'msg.revealNoSelection'), true);
+        return;
+      }
+
+      if (!state.index || !state.index.nodes.has(res.primaryId)) {
+        await refreshProject({ silent: true, force: true });
+      }
+      if (!state.index || !state.index.nodes.has(res.primaryId)) {
+        setStatus(t('msg.revealNotFound'), true);
+        return;
+      }
+
+      var primary = revealNodesInPanel(res.ids && res.ids.length ? res.ids : [res.primaryId], {
+        flash: true,
+        fromHostSync: false
+      });
+      if (!primary) {
+        setStatus(t('msg.revealNotFound'), true);
+        return;
+      }
+
+      if (document.hidden && typeof bridge.focusPanel === 'function') {
+        bridge.focusPanel();
+      }
+      setStatus(t(res.fromPlayhead ? 'msg.revealDonePlayhead' : 'msg.revealDoneClip', { name: primary.name }));
+    } catch (err) {
+      setStatus((err && err.message) || String(err), true);
+    }
+  }
+
+  function shortcutSig(sc) {
+    if (!sc) return '';
+    return (sc.ctrl ? '1' : '0') + '|' + (sc.alt ? '1' : '0') + '|' + (sc.shift ? '1' : '0') + '|' + String(sc.vk || 0);
+  }
+
+  function updateRevealShortcutUI() {
+    var scLabel = (state.revealShortcut && state.revealShortcut.label) || 'Alt+F';
+    var revealBtn = $('btn-reveal-timeline');
+    if (revealBtn) revealBtn.title = t('top.revealTimelineTitle', { key: scLabel });
+    var hotkeyBtn = $('btn-hotkey-toggle');
+    if (hotkeyBtn) {
+      hotkeyBtn.classList.toggle('is-active', !!state.altFHotkey);
+      hotkeyBtn.title = t('status.hotkeyTitle', { key: scLabel });
+    }
+    var hotkeyLbl = $('hotkey-label');
+    if (hotkeyLbl) {
+      hotkeyLbl.textContent = state.altFHotkey ? t('status.hotkeyOn') : t('status.hotkeyOff');
+    }
+  }
+
+  function matchesRevealShortcut(e) {
+    var sc = state.revealShortcut || U.DEFAULT_REVEAL_SHORTCUT;
+    if (!sc || !e) return false;
+    var ctrlMatch = !!(e.ctrlKey || e.metaKey) === !!sc.ctrl;
+    var altMatch = !!e.altKey === !!sc.alt;
+    var shiftMatch = !!e.shiftKey === !!sc.shift;
+    if (!ctrlMatch || !altMatch || !shiftMatch) return false;
+    var k = String(e.key || '').toLowerCase();
+    if (sc.domKey && k === sc.domKey) return true;
+    if (typeof e.keyCode === 'number' && sc.vk && e.keyCode === sc.vk) return true;
+    return false;
+  }
+
+  async function syncRevealShortcut(silent) {
+    if (shortcutSyncing || !bridge || typeof bridge.getRevealShortcut !== 'function') return false;
+    shortcutSyncing = true;
+    lastShortcutSyncAt = Date.now();
+    try {
+      var next = await bridge.getRevealShortcut();
+      if (!next || !next.vk) return false;
+      var changed = shortcutSig(next) !== shortcutSig(state.revealShortcut);
+      state.revealShortcut = next;
+      updateRevealShortcutUI();
+      if (typeof bridge.updateGlobalHotkey === 'function') {
+        bridge.updateGlobalHotkey(next);
+      }
+      if (changed && !silent) {
+        setStatus(t('status.hotkeySynced', { key: next.label || 'Alt+F' }));
+      }
+      return changed;
+    } catch (_) {
+      return false;
+    } finally {
+      shortcutSyncing = false;
+    }
+  }
+
+  function syncGlobalHotkeyState() {
+    var supported = typeof bridge.supportsGlobalHotkey === 'function' && bridge.supportsGlobalHotkey();
+    var btn = $('btn-hotkey-toggle');
+    if (btn) btn.classList.toggle('hidden', !supported);
+    updateRevealShortcutUI();
+    if (!supported) return;
+    if (state.altFHotkey) {
+      bridge.startGlobalHotkey(function (combo) {
+        if (combo === 'reveal' || combo === 'alt+f') actionRevealTimelineClip();
+      }, state.revealShortcut);
+    } else {
+      bridge.stopGlobalHotkey();
     }
   }
 
@@ -2141,6 +2499,7 @@
   function openContextMenu(event, id, source) {
     if (!state.hasProject || !state.index) return;
     closeContextMenu();
+    closeUsagePopover();
     var menu = $('context-menu');
     menu.innerHTML = '';
 
@@ -2184,6 +2543,9 @@
       sep();
       add(t('menu.mediaProps'), function () { actionMediaProperties(node.id); }, { disabled: !single });
       add(t('menu.seqSettings'), function () { actionSequenceSettings(node.id); }, { disabled: !single || !isSeq });
+      var usageMenuLabel = t('menu.showUsage') + (node.up > 0 ? (' (' + node.up + ')') : '');
+      var menuPoint = { x: event.clientX, y: event.clientY };
+      add(usageMenuLabel, function () { openUsagePopover(node.id, menuPoint); }, { disabled: !single });
       add(t('menu.revealExplorer'), function () {
         if (!bridge.revealInExplorer(node.path)) setStatus(t('msg.revealUnsupported'), true);
         else setStatus(t('msg.revealDone'));
@@ -2451,10 +2813,11 @@
     $('btn-col-settings').innerHTML = U.ICONS.columns;
     $('btn-view-grid').innerHTML = U.ICONS.grid;
     $('btn-view-list').innerHTML = U.ICONS.list;
-    $('btn-new-bin').innerHTML = U.ICONS.plus + '<span>' + U.escapeHtml(t('top.newBin')) + '</span>';
-    $('btn-import').innerHTML = U.ICONS.importFile + '<span>' + U.escapeHtml(t('top.import')) + '</span>';
-    $('btn-import-folder').innerHTML = U.ICONS.importFolder + '<span>' + U.escapeHtml(t('top.importFolder')) + '</span>';
+    var revealBtn = $('btn-reveal-timeline');
+    if (revealBtn) revealBtn.innerHTML = U.ICONS.locate;
     $('btn-refresh').innerHTML = U.ICONS.refresh;
+
+    state.altFHotkey = readPref('altFHotkey', '1') !== '0';
 
     /* Restore saved language before building headers & chrome */
     var savedLang = readPref('lang', 'zh');
@@ -2628,10 +2991,23 @@
     });
 
     /* Top action buttons */
-    $('btn-new-bin').addEventListener('click', function () { actionCreateBin(state.folderId); });
-    $('btn-import').addEventListener('click', function () { actionImport(state.folderId); });
-    $('btn-import-folder').addEventListener('click', function () { actionImportFolders(state.folderId); });
+    var revealTimelineBtn = $('btn-reveal-timeline');
+    if (revealTimelineBtn) {
+      revealTimelineBtn.addEventListener('click', function () { actionRevealTimelineClip(); });
+    }
     $('btn-refresh').addEventListener('click', function () { refreshProject(); });
+
+    /* Windows Quick Reveal hotkey capture toggle in status bar */
+    var hotkeyToggleBtn = $('btn-hotkey-toggle');
+    if (hotkeyToggleBtn) {
+      hotkeyToggleBtn.addEventListener('click', function () {
+        state.altFHotkey = !state.altFHotkey;
+        persistPref('altFHotkey', state.altFHotkey ? '1' : '0');
+        syncGlobalHotkeyState();
+        var scLabel = (state.revealShortcut && state.revealShortcut.label) || 'Alt+F';
+        setStatus(t(state.altFHotkey ? 'status.hotkeyEnabledMsg' : 'status.hotkeyDisabledMsg', { key: scLabel }));
+      });
+    }
 
     /* Live sync toggle pill in status bar */
     $('btn-sync-toggle').addEventListener('click', function () {
@@ -2676,15 +3052,21 @@
       e.preventDefault();
     });
 
-    /* Dismiss context menu, floating submenu, column popover & modal */
+    /* Dismiss context menu, floating submenu, column popover, usage popover & modal */
     $('context-menu').addEventListener('scroll', function () { closeSubmenu(); }, { passive: true });
     $('context-submenu').addEventListener('mouseenter', function () { clearTimeout(submenuCloseTimer); });
+    $('grid-scroll').addEventListener('scroll', function () {
+      if (state.usagePopoverOpen) closeUsagePopover();
+    }, { passive: true });
     document.addEventListener('mousedown', function (e) {
       if (state.menuOpen && !$('context-menu').contains(e.target) && !$('context-submenu').contains(e.target)) {
         closeContextMenu();
       }
       if (state.colPopoverOpen && !$('col-popover').contains(e.target) && !$('btn-col-settings').contains(e.target)) {
         closeColPopover();
+      }
+      if (state.usagePopoverOpen && !$('usage-popover').contains(e.target) && !e.target.closest('.usage-pill')) {
+        closeUsagePopover();
       }
     });
     $('modal-cancel').addEventListener('click', function () { closeModal(null); });
@@ -2702,6 +3084,7 @@
       if (e.key === 'Escape') {
         if (state.menuOpen) { closeContextMenu(); return; }
         if (state.colPopoverOpen) { closeColPopover(); return; }
+        if (state.usagePopoverOpen) { closeUsagePopover(); return; }
         if (inField && e.target === $('search-input') && $('search-input').value) {
           $('btn-search-clear').click();
           $('search-input').blur();
@@ -2784,6 +3167,11 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         var dupIds = selectedIds();
         if (dupIds.length) { e.preventDefault(); actionDuplicate(dupIds); }
+        return;
+      }
+      if (matchesRevealShortcut(e)) {
+        e.preventDefault();
+        actionRevealTimelineClip();
         return;
       }
       if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); $('btn-back').click(); return; }
@@ -2872,11 +3260,23 @@
       if (!bridge.isDemo && (Date.now() - lastLabelSyncAt) >= 1500) {
         syncLabelPrefs(false);
       }
+      if (!bridge.isDemo && (Date.now() - lastShortcutSyncAt) >= 1500) {
+        syncRevealShortcut(false);
+      }
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden && !bridge.isDemo) {
+        pollOnce();
+      }
+    });
+    window.addEventListener('beforeunload', function () {
+      if (typeof bridge.stopGlobalHotkey === 'function') bridge.stopGlobalHotkey();
     });
     window.addEventListener('unload', function () {
       clearInterval(pollTimer);
       clearTimeout(arrowHostSyncTimer);
       clearReconcileTimers();
+      if (typeof bridge.stopGlobalHotkey === 'function') bridge.stopGlobalHotkey();
       thumbEngine.dispose();
     });
   }
@@ -2888,6 +3288,9 @@
       onSelectFolder: function (binId) {
         focusPane('tree');
         navigateToFolder(binId);
+      },
+      onRenameFolder: function (binId) {
+        actionRename(binId, true);
       },
       onContextMenu: function (event, binId) {
         openContextMenu(event, binId, 'tree');
@@ -2909,6 +3312,12 @@
     gridView = new window.PrGridView($('grid-scroll'), $('grid'), $('grid-empty'), thumbEngine, {
       onEnterFolder: function (binId) {
         navigateToFolder(binId);
+      },
+      onRenameItem: function (id) {
+        actionRename(id, false);
+      },
+      onShowUsage: function (id, anchorEl) {
+        openUsagePopover(id, anchorEl);
       },
       onSelectChange: function (ids) {
         focusPane('grid');
@@ -2979,14 +3388,16 @@
       $('demo-strip').classList.remove('hidden');
     }
 
-    /* Detect FFmpeg & load Premiere custom label colors in parallel while loading the project tree */
+    /* Detect FFmpeg & load Premiere custom label colors + Reveal shortcut in parallel while loading the project tree */
     await Promise.all([
       thumbEngine.init(),
       syncLabelPrefs(true),
+      syncRevealShortcut(true),
       refreshProject({ force: true })
     ]);
 
     updateEngineBadge();
+    syncGlobalHotkeyState();
 
     /* Background cache pruning (non-blocking) */
     setTimeout(function () { thumbEngine.pruneOldCache(); }, 4000);

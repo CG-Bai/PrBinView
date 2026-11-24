@@ -143,6 +143,8 @@
     var fsMod = U.nodeRequire('fs');
     var pathMod = U.nodeRequire('path');
     var hostLoaded = false;
+    var currentRevealShortcut = Object.assign({}, U.DEFAULT_REVEAL_SHORTCUT);
+    var lastHostEnv = { appVersion: '', docsPath: '' };
 
     /* Tell Premiere Pro CEP to route arrow keys & panel shortcuts to PrBinView while our panel has focus */
     function registerPanelKeyInterest() {
@@ -169,6 +171,7 @@
           });
           addKey(123, { alt: true });
           addKey(124, { alt: true });
+          addKey(3, { alt: true }); /* Option+F: Reveal timeline clip */
           [115, 119, 49, 36, 51, 117, 53, 120, 96].forEach(function (kc) { addKey(kc); });
           [0, 8, 2, 3, 15, 9, 7].forEach(function (kc) { addKey(kc, { meta: true }); });
         } else {
@@ -179,6 +182,15 @@
           });
           addKey(37, { alt: true });
           addKey(39, { alt: true });
+          if (currentRevealShortcut && currentRevealShortcut.vk) {
+            addKey(currentRevealShortcut.vk, {
+              ctrl: !!currentRevealShortcut.ctrl,
+              alt: !!currentRevealShortcut.alt,
+              shift: !!currentRevealShortcut.shift
+            });
+          } else {
+            addKey(70, { alt: true });
+          }
           [36, 35, 32, 13, 8, 46, 27, 113, 116].forEach(function (kc) { addKey(kc); });
           /* Ctrl+A(65), Ctrl+C(67), Ctrl+D(68), Ctrl+F(70), Ctrl+R(82), Ctrl+V(86), Ctrl+X(88) */
           [65, 67, 68, 70, 82, 86, 88].forEach(function (kc) { addKey(kc, { ctrl: true }); });
@@ -529,6 +541,158 @@
       return presets;
     }
 
+    var hotkeyChild = null;
+    var hotkeyCallback = null;
+    var hotkeyWanted = false;
+    var hotkeyRestartTimer = 0;
+    var hotkeyFailCount = 0;
+    var hotkeyMods = U.DEFAULT_REVEAL_SHORTCUT.winMods;
+    var hotkeyVk = U.DEFAULT_REVEAL_SHORTCUT.vk;
+
+    function resolvePowerShellExe() {
+      var proc = U.nodeProcess();
+      var psBin = 'powershell.exe';
+      try {
+        var sysRoot = proc && proc.env && (proc.env.SystemRoot || proc.env.windir);
+        if (sysRoot && pathMod && fsMod) {
+          var fullPs = pathMod.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+          if (fsMod.existsSync(fullPs)) psBin = fullPs;
+        }
+      } catch (_) {}
+      return psBin;
+    }
+
+    function supportsGlobalHotkey() {
+      var proc = U.nodeProcess();
+      if (!cp || !pathMod || !fsMod || !proc || proc.platform !== 'win32') return false;
+      var extRoot = resolveExtensionRoot();
+      var helperScript = extRoot ? pathMod.join(extRoot, 'helpers', 'hotkey-watch.ps1') : '';
+      try {
+        return !!(helperScript && fsMod.existsSync(helperScript));
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function stopGlobalHotkey() {
+      hotkeyWanted = false;
+      hotkeyCallback = null;
+      clearTimeout(hotkeyRestartTimer);
+      hotkeyRestartTimer = 0;
+      if (hotkeyChild) {
+        var child = hotkeyChild;
+        hotkeyChild = null;
+        try {
+          if (child.stdin && !child.stdin.destroyed) {
+            child.stdin.write('EXIT\n');
+            child.stdin.end();
+          }
+        } catch (_) {}
+        setTimeout(function () {
+          try { if (!child.killed) child.kill(); } catch (_) {}
+        }, 250);
+      }
+    }
+
+    function updateGlobalHotkey(shortcut) {
+      if (shortcut && shortcut.vk) {
+        currentRevealShortcut = Object.assign({}, shortcut);
+        hotkeyMods = Number(shortcut.winMods) || 0;
+        hotkeyVk = Number(shortcut.vk) || U.DEFAULT_REVEAL_SHORTCUT.vk;
+        registerPanelKeyInterest();
+      }
+      if (hotkeyChild && hotkeyChild.stdin && !hotkeyChild.stdin.destroyed) {
+        try {
+          hotkeyChild.stdin.write('SET:' + hotkeyMods + ':' + hotkeyVk + '\n');
+        } catch (_) {}
+      }
+    }
+
+    function startGlobalHotkey(onTrigger, shortcut) {
+      hotkeyCallback = typeof onTrigger === 'function' ? onTrigger : null;
+      hotkeyWanted = true;
+      hotkeyFailCount = 0;
+      clearTimeout(hotkeyRestartTimer);
+      hotkeyRestartTimer = 0;
+      if (shortcut && shortcut.vk) {
+        currentRevealShortcut = Object.assign({}, shortcut);
+        hotkeyMods = Number(shortcut.winMods) || 0;
+        hotkeyVk = Number(shortcut.vk) || U.DEFAULT_REVEAL_SHORTCUT.vk;
+        registerPanelKeyInterest();
+      }
+      if (!supportsGlobalHotkey()) return false;
+      if (hotkeyChild) {
+        updateGlobalHotkey(shortcut);
+        return true;
+      }
+
+      var proc = U.nodeProcess();
+      var extRoot = resolveExtensionRoot();
+      var helperScript = extRoot ? pathMod.join(extRoot, 'helpers', 'hotkey-watch.ps1') : '';
+      if (!helperScript) return false;
+
+      var psBin = resolvePowerShellExe();
+      var parentPid = (proc && typeof proc.pid === 'number') ? proc.pid : 0;
+
+      function launch() {
+        if (!hotkeyWanted || hotkeyChild) return;
+        try {
+          var child = cp.spawn(psBin, [
+            '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-STA', '-WindowStyle', 'Hidden',
+            '-File', helperScript,
+            '-ParentPid', String(parentPid),
+            '-Modifiers', String(hotkeyMods),
+            '-Vk', String(hotkeyVk)
+          ], {
+            windowsHide: true,
+            stdio: ['pipe', 'pipe', 'pipe']
+          });
+          hotkeyChild = child;
+          var stdoutBuf = '';
+          if (child.stdout) {
+            child.stdout.setEncoding('utf8');
+            child.stdout.on('data', function (chunk) {
+              stdoutBuf += String(chunk || '');
+              var lines = stdoutBuf.split(/\r?\n/);
+              stdoutBuf = lines.pop() || '';
+              for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim();
+                if (/^READY\b/i.test(line)) {
+                  hotkeyFailCount = 0;
+                } else if (/^TRIGGER:/i.test(line)) {
+                  if (hotkeyCallback) hotkeyCallback(line.slice(8).toLowerCase());
+                }
+              }
+            });
+          }
+          child.on('error', function () {
+            if (hotkeyChild === child) hotkeyChild = null;
+          });
+          child.on('exit', function () {
+            if (hotkeyChild === child) hotkeyChild = null;
+            if (hotkeyWanted && hotkeyFailCount < 3) {
+              hotkeyFailCount += 1;
+              clearTimeout(hotkeyRestartTimer);
+              hotkeyRestartTimer = setTimeout(launch, 2500);
+            }
+          });
+        } catch (_) {
+          hotkeyChild = null;
+        }
+      }
+
+      launch();
+      return true;
+    }
+
+    function focusPanel() {
+      try {
+        if (cepApi && typeof cepApi.requestOpenExtension === 'function') {
+          cepApi.requestOpenExtension('com.cgbai.prbinview.panel', '');
+        }
+      } catch (_) {}
+    }
+
     function triggerNativeMenuAction(action) {
       return new Promise(function (resolve) {
         var proc = U.nodeProcess();
@@ -570,13 +734,13 @@
       });
     }
 
-    function readPremiereLabelPrefsFromDisk(hostInfo) {
-      var empty = { colors: new Array(16).fill(''), names: new Array(16).fill(''), presetName: '', prefsPath: '' };
-      if (!fsMod || !pathMod) return empty;
+    function findActivePremiereProfile(hostInfo) {
+      var out = { docsCandidates: [], bestPrefsPath: '', bestProfileDir: '' };
+      if (!fsMod || !pathMod) return out;
 
       var proc = U.nodeProcess();
       var osMod = U.nodeRequire('os');
-      var docsCandidates = [];
+      var docsCandidates = out.docsCandidates;
       function pushDir(d) {
         var clean = U.uriToPath(d || '').replace(/\//g, pathMod.sep).replace(/[\\/]+$/, '');
         if (!clean) return;
@@ -587,7 +751,8 @@
         docsCandidates.push(clean);
       }
 
-      if (hostInfo && hostInfo.docsPath) pushDir(hostInfo.docsPath);
+      var envInfo = hostInfo || lastHostEnv;
+      if (envInfo && envInfo.docsPath) pushDir(envInfo.docsPath);
       try {
         var home = (osMod && typeof osMod.homedir === 'function') ? osMod.homedir()
           : (proc && proc.env && (proc.env.USERPROFILE || proc.env.HOME)) || '';
@@ -600,17 +765,14 @@
         }
       } catch (_) {}
 
-      /* Major version prefix from running Premiere Pro (e.g. "27.0.0" -> "27.") */
+      /* Major version prefix from running Premiere Pro (works across 22.0 .. 27.0+ without version caps) */
       var verMajor = '';
-      if (hostInfo && hostInfo.appVersion) {
-        var vm = String(hostInfo.appVersion).match(/^(\d+)/);
+      if (envInfo && envInfo.appVersion) {
+        var vm = String(envInfo.appVersion).match(/^(\d+)/);
         if (vm) verMajor = vm[1] + '.';
       }
 
-      var bestPrefsPath = '';
       var bestPrefsScore = -1;
-      var bestProfileDir = '';
-
       for (var d = 0; d < docsCandidates.length; d++) {
         var prBase = pathMod.join(docsCandidates[d], 'Adobe', 'Premiere Pro');
         try {
@@ -632,14 +794,103 @@
                 var score = verBonus + (st.mtimeMs || 0);
                 if (score > bestPrefsScore) {
                   bestPrefsScore = score;
-                  bestPrefsPath = prefsFile;
-                  bestProfileDir = profDir;
+                  out.bestPrefsPath = prefsFile;
+                  out.bestProfileDir = profDir;
                 }
               } catch (_) {}
             }
           }
         } catch (_) {}
       }
+      return out;
+    }
+
+    function readPremiereRevealShortcutFromDisk(hostInfo) {
+      var fallback = Object.assign({}, U.DEFAULT_REVEAL_SHORTCUT);
+      if (!fsMod || !pathMod) return fallback;
+
+      var prof = findActivePremiereProfile(hostInfo);
+      if (!prof.bestProfileDir) return fallback;
+
+      var proc = U.nodeProcess();
+      var subDir = (proc && proc.platform === 'darwin') ? 'Mac' : 'Win';
+      var kysDir = pathMod.join(prof.bestProfileDir, subDir);
+      var kysEntries = [];
+      try {
+        if (!fsMod.existsSync(kysDir)) return fallback;
+        var names = fsMod.readdirSync(kysDir);
+        for (var i = 0; i < names.length; i++) {
+          if (!/\.kys$/i.test(names[i])) continue;
+          var fullPath = pathMod.join(kysDir, names[i]);
+          try {
+            var st = fsMod.statSync(fullPath);
+            if (st.isFile()) {
+              kysEntries.push({ name: names[i], path: fullPath, mtimeMs: st.mtimeMs || 0 });
+            }
+          } catch (_) {}
+        }
+      } catch (_) {
+        return fallback;
+      }
+      if (!kysEntries.length) return fallback;
+
+      var prefsXml = '';
+      if (prof.bestPrefsPath) {
+        try { prefsXml = fsMod.readFileSync(prof.bestPrefsPath, 'utf8'); } catch (_) {}
+      }
+
+      var activeFile = U.findActiveKysFromPrefs(prefsXml, kysEntries.map(function (e) { return e.name; }));
+      if (activeFile) {
+        var matched = kysEntries.find(function (e) { return e.name === activeFile; });
+        if (matched) {
+          try {
+            var stem = matched.name.replace(/\.kys$/i, '');
+            var parsedActive = U.parsePremiereKysRevealShortcut(fsMod.readFileSync(matched.path, 'utf8'), stem);
+            if (parsedActive) {
+              parsedActive.kysPath = matched.path;
+              return parsedActive;
+            }
+            return Object.assign({}, fallback, { presetName: stem, kysPath: matched.path });
+          } catch (_) {}
+        }
+      }
+
+      /* Fallback when Prefs didn't name a specific .kys file: inspect most recently modified .kys */
+      kysEntries.sort(function (a, b) { return b.mtimeMs - a.mtimeMs; });
+      for (var k = 0; k < kysEntries.length; k++) {
+        try {
+          var stemName = kysEntries[k].name.replace(/\.kys$/i, '');
+          var parsed = U.parsePremiereKysRevealShortcut(fsMod.readFileSync(kysEntries[k].path, 'utf8'), stemName);
+          if (parsed) {
+            parsed.kysPath = kysEntries[k].path;
+            return parsed;
+          }
+        } catch (_) {}
+      }
+      return fallback;
+    }
+
+    async function getRevealShortcut() {
+      if (!lastHostEnv.appVersion && !lastHostEnv.docsPath) {
+        try {
+          var hostInfo = await call('getLabelPrefs');
+          if (hostInfo) {
+            if (hostInfo.appVersion) lastHostEnv.appVersion = String(hostInfo.appVersion);
+            if (hostInfo.docsPath) lastHostEnv.docsPath = String(hostInfo.docsPath);
+          }
+        } catch (_) {}
+      }
+      return readPremiereRevealShortcutFromDisk(lastHostEnv);
+    }
+
+    function readPremiereLabelPrefsFromDisk(hostInfo) {
+      var empty = { colors: new Array(16).fill(''), names: new Array(16).fill(''), presetName: '', prefsPath: '' };
+      if (!fsMod || !pathMod) return empty;
+
+      var prof = findActivePremiereProfile(hostInfo);
+      var docsCandidates = prof.docsCandidates;
+      var bestPrefsPath = prof.bestPrefsPath;
+      var bestProfileDir = prof.bestProfileDir;
 
       var prefsParsed = { colors: new Array(16).fill(''), names: new Array(16).fill(''), presetName: '' };
       if (bestPrefsPath) {
@@ -693,6 +944,10 @@
         hostInfo = await call('getLabelPrefs');
       } catch (_) {
         hostInfo = null;
+      }
+      if (hostInfo) {
+        if (hostInfo.appVersion) lastHostEnv.appVersion = String(hostInfo.appVersion);
+        if (hostInfo.docsPath) lastHostEnv.docsPath = String(hostInfo.docsPath);
       }
       var disk = readPremiereLabelPrefsFromDisk(hostInfo);
       var liveColors = (hostInfo && Array.isArray(hostInfo.colors))
@@ -821,6 +1076,15 @@
         return call('createSequenceFromClips', { ids: ids, name: name, targetBinId: targetBinId });
       },
       getItemDetails: function (id) { return call('getItemDetails', { id: id }); },
+      getItemUsage: function (id) { return call('getItemUsage', { id: id }); },
+      jumpToSequenceTime: function (entry) { return call('jumpToSequenceTime', entry); },
+      getTimelineSelection: function () { return call('getTimelineSelection'); },
+      getRevealShortcut: getRevealShortcut,
+      supportsGlobalHotkey: supportsGlobalHotkey,
+      startGlobalHotkey: startGlobalHotkey,
+      updateGlobalHotkey: updateGlobalHotkey,
+      stopGlobalHotkey: stopGlobalHotkey,
+      focusPanel: focusPanel,
       getFolderMetadata: function (ids) { return call('getFolderMetadata', { ids: ids || [] }); },
       captureTimelineBaseline: function () { return call('captureTimelineBaseline'); },
       reconcileDroppedClips: function (beforeIds, dragged) {
@@ -864,7 +1128,7 @@
       { id: 'bin-audio', pid: 'root', name: '03_配乐与音效', isBin: true, isSeq: false, path: '', offline: false, label: 5 },
       { id: 'bin-seq', pid: 'root', name: '04_剪辑序列', isBin: true, isSeq: false, path: '', offline: false, label: 13 },
 
-      { id: 'c-1', pid: 'bin-cam-a', name: 'A001_开场城市夜景.mp4', isBin: false, isSeq: false, path: 'D:/Media/A机位/A001_开场城市夜景.mp4', offline: false, label: 4, demoDuration: 28.4, demoRes: '3840×2160 · 25fps', demoThumb: makeSvgThumb('A001 城市夜景', '3840×2160 · H.264 · 25fps', '#1b2b4a', '#0f1626', '4K MP4') },
+      { id: 'c-1', pid: 'bin-cam-a', name: 'A001_开场城市夜景.mp4', isBin: false, isSeq: false, path: 'D:/Media/A机位/A001_开场城市夜景.mp4', offline: false, label: 4, uv: 3, ua: 3, up: 3, demoDuration: 28.4, demoRes: '3840×2160 · 25fps', demoThumb: makeSvgThumb('A001 城市夜景', '3840×2160 · H.264 · 25fps', '#1b2b4a', '#0f1626', '4K MP4') },
       { id: 'c-2', pid: 'bin-cam-a', name: 'A002_人物特写采访.mov', isBin: false, isSeq: false, path: 'D:/Media/A机位/A002_人物特写采访.mov', offline: false, label: 4, demoDuration: 64.0, demoRes: '3840×2160 · 25fps', demoThumb: makeSvgThumb('A002 人物采访', 'ProRes 422 HQ · 25fps', '#3c2544', '#1a1220', 'PRORES') },
       { id: 'c-3', pid: 'bin-cam-a', name: 'A003_产品桌面推轨.mp4', isBin: false, isSeq: false, path: 'D:/Media/A机位/A003_产品桌面推轨.mp4', offline: false, label: 7, demoDuration: 15.2, demoRes: '3840×2160 · 50fps', demoThumb: makeSvgThumb('A003 产品推轨', '3840×2160 · 50fps', '#4a331d', '#1c150f', '50FPS') },
       { id: 'c-4', pid: 'bin-cam-a', name: 'A004_霓虹街头跟拍.mxf', isBin: false, isSeq: false, path: 'D:/Media/A机位/A004_霓虹街头跟拍.mxf', offline: false, label: 6, demoDuration: 42.8, demoRes: '4096×2160 · 24fps', demoThumb: makeSvgThumb('A004 霓虹街头', 'XAVC-I MXF · 24fps', '#541e3b', '#1b1126', 'MXF') },
@@ -1058,6 +1322,42 @@
       captureTimelineBaseline: async function () { return { clips: 0 }; },
       reconcileDroppedClips: async function () { return { found: 0, foundClips: 0, swapped: 0, cleaned: 0, errors: [] }; },
       checkItemsInUse: async function () { return { inUse: false, refCount: 0, sequences: [], clipNames: [] }; },
+      getItemUsage: async function (id) {
+        var n = find(id);
+        var nm = n ? n.name : '';
+        if (!n || n.isBin || !(n.up > 0)) return { id: id, name: nm, videoCount: 0, audioCount: 0, entries: [] };
+        return {
+          id: id,
+          name: nm,
+          videoCount: n.uv || 0,
+          audioCount: n.ua || 0,
+          entries: [
+            { seqId: 'seq-1', seqName: '01_主片粗剪_60s', clipName: nm, startTicks: '1270080000000', startSec: 5, timecode: '00:00:05:00', tracks: 'V1+A1', hasVideo: true, hasAudio: true, trackType: 'video', trackIndex: 0, clipIndex: 0 },
+            { seqId: 'seq-2', seqName: '02_精剪定版_30s_竖屏', clipName: nm, startTicks: '0', startSec: 0, timecode: '00;00;00;00', tracks: 'V1+A1', hasVideo: true, hasAudio: true, trackType: 'video', trackIndex: 0, clipIndex: 0 },
+            { seqId: 'seq-2', seqName: '02_精剪定版_30s_竖屏', clipName: nm, startTicks: '771208560000', startSec: 3.036, timecode: '00;00;03;01', tracks: 'V1+A1', hasVideo: true, hasAudio: true, trackType: 'video', trackIndex: 0, clipIndex: 1 }
+          ]
+        };
+      },
+      jumpToSequenceTime: async function (entry) {
+        return { jumped: true, seqId: entry.seqId, seqName: entry.seqName || 'Demo', startTicks: entry.startTicks || '0' };
+      },
+      getTimelineSelection: async function () {
+        return {
+          found: true,
+          reason: '',
+          seqName: '01_主片粗剪_60s',
+          ids: ['c-1'],
+          primaryId: 'c-1',
+          primaryName: 'A001_开场航拍_4K.mp4',
+          fromPlayhead: false
+        };
+      },
+      getRevealShortcut: async function () { return Object.assign({}, U.DEFAULT_REVEAL_SHORTCUT); },
+      supportsGlobalHotkey: function () { return false; },
+      startGlobalHotkey: function () { return false; },
+      updateGlobalHotkey: function () {},
+      stopGlobalHotkey: function () {},
+      focusPanel: function () {},
       duplicateItems: async function (ids, targetBinId) {
         var count = 0;
         (ids || []).forEach(function (id) {

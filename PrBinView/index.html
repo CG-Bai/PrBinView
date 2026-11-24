@@ -30,9 +30,7 @@
       </div>
 
       <div class="topbar-right">
-        <button id="btn-new-bin" type="button" class="btn" title="在当前素材箱中新建素材箱"></button>
-        <button id="btn-import" type="button" class="btn" title="导入媒体文件…"></button>
-        <button id="btn-import-folder" type="button" class="btn" title="导入本地文件夹（保留子目录结构）…"></button>
+        <button id="btn-reveal-timeline" type="button" class="icon-btn" title="定位时间线选中素材 (Alt+F，不打开原生项目面板)"></button>
         <button id="btn-refresh" type="button" class="icon-btn" title="刷新项目面板 (F5)"></button>
         <button id="btn-lang" type="button" class="lang-btn" title="切换界面语言（中文 / English）"><span class="lang-opt lang-zh is-on">中</span><span class="lang-sep">/</span><span class="lang-opt lang-en">EN</span></button>
       </div>
@@ -111,8 +109,12 @@
         <span id="status-text" class="status-text">就绪</span>
       </div>
       <div class="status-right">
-        <span id="version-badge" class="version-badge" title="PrBinView 插件版本">v1.3.8</span>
+        <span id="version-badge" class="version-badge" title="PrBinView 插件版本">v1.3.11</span>
         <span id="engine-badge" class="engine-badge" title="缩略图解码引擎">检测中</span>
+        <button id="btn-hotkey-toggle" type="button" class="sync-pill is-active hidden" title="快捷定位：开启后在 Pr 时间线按快捷键直接定位到本面板，不打开原生项目面板">
+          <span class="sync-dot"></span>
+          <span id="hotkey-label">快捷定位：开</span>
+        </button>
         <button id="btn-sync-toggle" type="button" class="sync-pill is-active" title="单击 Pr 项目面板素材箱自动同步到本面板，反之亦然">
           <span class="sync-dot"></span>
           <span id="sync-label">双向联动：开</span>
@@ -135,6 +137,9 @@
 
   <!-- Column Visibility Popover -->
   <div id="col-popover" class="col-popover hidden"></div>
+
+  <!-- Premiere-style Sequence Usage Popover -->
+  <div id="usage-popover" class="usage-popover hidden" role="menu"></div>
 
   <!-- Lightweight Modal Dialog -->
   <div id="modal-backdrop" class="modal-backdrop hidden">

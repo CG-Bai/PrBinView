@@ -47,6 +47,13 @@
         var row = e.target.closest('.tree-row');
         if (!row) return;
         var id = row.dataset.id;
+        var node = self.index && self.index.nodes.get(id);
+        if (e.target.closest('.tree-name') && node && node.pid) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (self.cb.onRenameFolder) self.cb.onRenameFolder(id);
+          return;
+        }
         if (self.index) {
           var sub = self.index.subBinsByParent.get(id) || [];
           if (sub.length) self.toggleExpand(id);
@@ -452,6 +459,7 @@
 
       this.renamingId = id;
       row.setAttribute('draggable', 'false');
+      nameEl.classList.add('is-renaming');
       var input = document.createElement('input');
       input.type = 'text';
       input.className = 'inline-rename-input tree-rename-input';
@@ -466,6 +474,7 @@
         settled = true;
         self.renamingId = '';
         if (node.pid) row.setAttribute('draggable', 'true');
+        nameEl.classList.remove('is-renaming');
         var nextName = input.value.trim();
         nameEl.textContent = commit && nextName ? nextName : node.name;
         if (commit && nextName && nextName !== node.name && onCommit) {

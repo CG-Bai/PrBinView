@@ -85,6 +85,7 @@
     { id: 'videoInfo',     label: '视频信息', width: 138, minWidth: 96,  visible: true,  needsMeta: true },
     { id: 'audioInfo',     label: '音频信息', width: 186, minWidth: 110, visible: true,  needsMeta: true },
     { id: 'status',        label: '状态',     width: 66,  minWidth: 52,  visible: true },
+    { id: 'usage',         label: '使用次数', width: 78,  minWidth: 58,  visible: true },
     { id: 'kind',          label: '类型',     width: 68,  minWidth: 54,  visible: false },
     { id: 'description',   label: '描述',     width: 130, minWidth: 80,  visible: false, needsMeta: true },
     { id: 'logNote',       label: '备注',     width: 130, minWidth: 80,  visible: false, needsMeta: true },
@@ -142,6 +143,7 @@
         if (/^online$/i.test(rawSt)) return tr('card.statusOnline');
         return rawSt;
       }
+      case 'usage': return (!node.isBin && node.up > 0) ? String(node.up) : '';
       case 'kind': return kindLabel(node.kind);
       case 'description': return m.description || '';
       case 'logNote': return m.logNote || '';
@@ -625,6 +627,9 @@
         offline: !!r.offline,
         label: Number.isFinite(Number(r.label)) ? Number(r.label) : 0,
         childCount: Number(r.childCount) || 0,
+        uv: Number(r.uv) || 0,
+        ua: Number(r.ua) || 0,
+        up: Number(r.up) || 0,
         rawOrder: i,
         meta: r.meta || null,
         demoThumb: r.demoThumb || '',
@@ -798,6 +803,8 @@
         cmp = (a.label - b.label) * sortDir;
       } else if (sortBy === 'status') {
         cmp = ((a.offline ? 1 : 0) - (b.offline ? 1 : 0)) * sortDir;
+      } else if (sortBy === 'usage') {
+        cmp = ((a.up || 0) - (b.up || 0)) * sortDir;
       } else if (sortBy === 'fps') {
         cmp = compareNumericMissingLast(
           parseFpsValue(getColumnCellText(a, 'fps')),
@@ -931,7 +938,8 @@
     forward: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 3.5 10.5 8 6 12.5"/></svg>',
     up: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5 10 8 5.5 12.5 10"/></svg>',
     close: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>',
-    columns: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><line x1="6" y1="2.5" x2="6" y2="13.5"/><line x1="10.5" y1="2.5" x2="10.5" y2="13.5"/></svg>'
+    columns: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><line x1="6" y1="2.5" x2="6" y2="13.5"/><line x1="10.5" y1="2.5" x2="10.5" y2="13.5"/></svg>',
+    locate: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"><circle cx="8" cy="8" r="4.3"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><line x1="8" y1="1.6" x2="8" y2="3.4"/><line x1="8" y1="12.6" x2="8" y2="14.4"/><line x1="1.6" y1="8" x2="3.4" y2="8"/><line x1="12.6" y1="8" x2="14.4" y2="8"/></svg>'
   };
 
   function sigHashUpdate(h, str) {
@@ -983,6 +991,193 @@
       );
     }
     return h.toString(16);
+  }
+
+  var DEFAULT_REVEAL_SHORTCUT = {
+    ctrl: false,
+    alt: true,
+    shift: false,
+    vk: 70,
+    winMods: 1,
+    keyLabel: 'F',
+    domKey: 'f',
+    label: 'Alt+F',
+    source: 'default',
+    presetName: '',
+    commandName: ''
+  };
+
+  var KYS_PUNCT_VK = {
+    96:  { vk: 0xC0, keyLabel: '`',  domKey: '`' },
+    126: { vk: 0xC0, keyLabel: '`',  domKey: '`' },
+    45:  { vk: 0xBD, keyLabel: '-',  domKey: '-' },
+    95:  { vk: 0xBD, keyLabel: '-',  domKey: '-' },
+    61:  { vk: 0xBB, keyLabel: '=',  domKey: '=' },
+    43:  { vk: 0xBB, keyLabel: '=',  domKey: '=' },
+    91:  { vk: 0xDB, keyLabel: '[',  domKey: '[' },
+    123: { vk: 0xDB, keyLabel: '[',  domKey: '[' },
+    93:  { vk: 0xDD, keyLabel: ']',  domKey: ']' },
+    125: { vk: 0xDD, keyLabel: ']',  domKey: ']' },
+    92:  { vk: 0xDC, keyLabel: '\\', domKey: '\\' },
+    124: { vk: 0xDC, keyLabel: '\\', domKey: '\\' },
+    59:  { vk: 0xBA, keyLabel: ';',  domKey: ';' },
+    58:  { vk: 0xBA, keyLabel: ';',  domKey: ';' },
+    39:  { vk: 0xDE, keyLabel: "'",  domKey: "'" },
+    34:  { vk: 0xDE, keyLabel: "'",  domKey: "'" },
+    44:  { vk: 0xBC, keyLabel: ',',  domKey: ',' },
+    60:  { vk: 0xBC, keyLabel: ',',  domKey: ',' },
+    46:  { vk: 0xBE, keyLabel: '.',  domKey: '.' },
+    62:  { vk: 0xBE, keyLabel: '.',  domKey: '.' },
+    47:  { vk: 0xBF, keyLabel: '/',  domKey: '/' },
+    63:  { vk: 0xBF, keyLabel: '/',  domKey: '/' }
+  };
+
+  function decodePremiereVirtualKey(rawVal) {
+    var n = Number(rawVal);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    if (n >= 2147483648) {
+      var ch = Math.round(n - 2147483648);
+      if (ch >= 65 && ch <= 90) {
+        var uc = String.fromCharCode(ch);
+        return { vk: ch, keyLabel: uc, domKey: uc.toLowerCase(), isFunc: false };
+      }
+      if (ch >= 97 && ch <= 122) {
+        var lc = String.fromCharCode(ch);
+        return { vk: ch - 32, keyLabel: lc.toUpperCase(), domKey: lc, isFunc: false };
+      }
+      if (ch >= 48 && ch <= 57) {
+        var dg = String.fromCharCode(ch);
+        return { vk: ch, keyLabel: dg, domKey: dg, isFunc: false };
+      }
+      if (ch === 32) {
+        return { vk: 0x20, keyLabel: 'Space', domKey: ' ', isFunc: false };
+      }
+      if (KYS_PUNCT_VK[ch]) {
+        return Object.assign({ isFunc: false }, KYS_PUNCT_VK[ch]);
+      }
+      return null;
+    }
+    /* Premiere Pro internal .kys function key IDs: F1=7 .. F5=11, F6=12 .. F12=18 */
+    if (n >= 7 && n <= 18) {
+      var fIdx = n - 6;
+      return { vk: 0x6F + fIdx, keyLabel: 'F' + fIdx, domKey: 'f' + fIdx, isFunc: true };
+    }
+    /* Direct Win32 VK fallback */
+    if (n >= 112 && n <= 123) {
+      var fNum = n - 111;
+      return { vk: n, keyLabel: 'F' + fNum, domKey: 'f' + fNum, isFunc: true };
+    }
+    if (n >= 65 && n <= 90) {
+      var letter = String.fromCharCode(n);
+      return { vk: n, keyLabel: letter, domKey: letter.toLowerCase(), isFunc: false };
+    }
+    if (n >= 48 && n <= 57) {
+      var digit = String.fromCharCode(n);
+      return { vk: n, keyLabel: digit, domKey: digit, isFunc: false };
+    }
+    return null;
+  }
+
+  function formatShortcutLabel(ctrl, alt, shift, keyLabel) {
+    var parts = [];
+    if (ctrl) parts.push('Ctrl');
+    if (alt) parts.push('Alt');
+    if (shift) parts.push('Shift');
+    if (keyLabel) parts.push(keyLabel);
+    return parts.join('+');
+  }
+
+  function decodeXmlEntitiesBasic(str) {
+    return String(str || '')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&');
+  }
+
+  function parsePremiereKysRevealShortcut(xmlText, presetName) {
+    var src = String(xmlText || '');
+    if (!src) return null;
+    var itemRe = /<item(?:\.\d+)?\b[^>]*>([\s\S]*?)<\/item(?:\.\d+)?>/gi;
+    var candidates = [];
+    var m;
+    while ((m = itemRe.exec(src)) !== null) {
+      var block = m[1];
+      var cmdM = block.match(/<commandname[^>]*>([^<]+)<\/commandname>/i);
+      if (!cmdM) continue;
+      var cmdName = decodeXmlEntitiesBasic(cmdM[1]).trim();
+      var normCmd = cmdName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (normCmd.indexOf('revealinproject') === -1) continue;
+
+      var vkM = block.match(/<virtualkey[^>]*>([^<]+)<\/virtualkey>/i);
+      if (!vkM) continue;
+      var decoded = decodePremiereVirtualKey(vkM[1].trim());
+      if (!decoded) continue;
+
+      var ctrl = /<modifier\.ctrl[^>]*>\s*true\s*<\/modifier\.ctrl>/i.test(block);
+      var alt = /<modifier\.alt[^>]*>\s*true\s*<\/modifier\.alt>/i.test(block);
+      var shift = /<modifier\.shift[^>]*>\s*true\s*<\/modifier\.shift>/i.test(block);
+
+      /* Never hijack a bare alphanumeric/punctuation key without modifiers (would break typing in Pr) */
+      if (!ctrl && !alt && !shift && !decoded.isFunc) continue;
+
+      var winMods = (alt ? 1 : 0) | (ctrl ? 2 : 0) | (shift ? 4 : 0);
+      var score = (ctrl || alt) ? 3 : (decoded.isFunc ? 2 : 1);
+      candidates.push({
+        ctrl: ctrl,
+        alt: alt,
+        shift: shift,
+        vk: decoded.vk,
+        winMods: winMods,
+        keyLabel: decoded.keyLabel,
+        domKey: decoded.domKey,
+        label: formatShortcutLabel(ctrl, alt, shift, decoded.keyLabel),
+        source: 'premiere',
+        presetName: String(presetName || ''),
+        commandName: cmdName,
+        _score: score
+      });
+    }
+    if (!candidates.length) return null;
+    candidates.sort(function (a, b) { return b._score - a._score; });
+    var best = candidates[0];
+    delete best._score;
+    return best;
+  }
+
+  function findActiveKysFromPrefs(prefsXml, availableKysFiles) {
+    var src = String(prefsXml || '');
+    if (!src || !Array.isArray(availableKysFiles) || !availableKysFiles.length) return '';
+
+    var byFull = {};
+    var byBase = {};
+    for (var i = 0; i < availableKysFiles.length; i++) {
+      var fname = String(availableKysFiles[i] || '');
+      if (!fname) continue;
+      var low = fname.toLowerCase();
+      byFull[low] = fname;
+      byBase[low.replace(/\.kys$/i, '')] = fname;
+    }
+
+    var tagRe = /<([A-Za-z0-9_.:-]+)[^>]*>([^<]+)<\/\1>/g;
+    var fallbackMatch = '';
+    var m;
+    while ((m = tagRe.exec(src)) !== null) {
+      var tagName = m[1];
+      var val = decodeXmlEntitiesBasic(m[2]).trim();
+      if (!val || val.length > 260) continue;
+      var baseName = val.replace(/^.*[\\/]/, '');
+      var lowVal = baseName.toLowerCase();
+      var lowStem = lowVal.replace(/\.kys$/i, '');
+      var hit = byFull[lowVal] || byBase[lowStem] || '';
+      if (!hit) continue;
+      if (/(?:key|shortcut|keymap|preset|kys)/i.test(tagName) || /\.kys$/i.test(val)) {
+        return hit;
+      }
+      if (!fallbackMatch) fallbackMatch = hit;
+    }
+    return fallbackMatch;
   }
 
   function kindIconSvg(kind, offline) {
@@ -1038,6 +1233,11 @@
     escapeHtml: escapeHtml,
     computeFolderSig: computeFolderSig,
     computeSelSig: computeSelSig,
+    DEFAULT_REVEAL_SHORTCUT: DEFAULT_REVEAL_SHORTCUT,
+    decodePremiereVirtualKey: decodePremiereVirtualKey,
+    formatShortcutLabel: formatShortcutLabel,
+    parsePremiereKysRevealShortcut: parsePremiereKysRevealShortcut,
+    findActiveKysFromPrefs: findActiveKysFromPrefs,
     kindIconSvg: kindIconSvg
   };
 
