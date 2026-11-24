@@ -2,7 +2,7 @@
   <strong>简体中文</strong> | <a href="./README.en.md">English</a>
 </p>
 
-# PrBinView · Premiere Pro 单面板极速媒体预览插件（v1.3.11）
+# PrBinView · Premiere Pro 单面板极速媒体预览插件（v1.3.12）
 
 面向 **Premiere Pro（2022–2027，Windows 为主 / macOS 基础兼容）** 的纯 **CEP 12 单面板** 媒体池缩略图预览扩展。
 
@@ -46,8 +46,8 @@
 
 ### Windows（推荐：一键安装，无需 Node.js）
 1. 在 [Releases](https://github.com/CG-Bai/PrBinView/releases) 页面下载并完整解压：
-   - **便携全格式版（推荐新手）**：`PrBinView-v1.3.11-win-ffmpeg.zip`（内置单个 `ffmpeg.exe`，无需额外配置即可预览 MXF / ProRes / PSD 等全格式）
-   - **轻量版**：`PrBinView-v1.3.11.zip`（仅约 155 KB，适合电脑已装 FFmpeg 或仅预览常见 MP4 / MOV / 图片 / AI 的用户）
+   - **便携全格式版（推荐新手）**：`PrBinView-v1.3.12-win-ffmpeg.zip`（内置单个 `ffmpeg.exe`，无需额外配置即可预览 MXF / ProRes / PSD 等全格式）
+   - **轻量版**：`PrBinView-v1.3.12.zip`（仅约 158 KB，适合电脑已装 FFmpeg 或仅预览常见 MP4 / MOV / 图片 / AI 的用户）
 2. 双击运行 **`一键安装_Windows.cmd`**（自动复制插件并开启 Adobe CEP 开发者模式 `PlayerDebugMode=1`）。
 3. **重启 Premiere Pro**，点击菜单：**窗口 → 扩展 → PrBinView · 媒体池预览**。
 
@@ -104,7 +104,7 @@ reg delete HKCU\Software\Adobe\CSXS.12 /v PlayerDebugMode /f
   - `pr-menu.ps1`：通过 Win32 菜单 / UI Automation 触发 Premiere Pro 原生「链接媒体」与「导出媒体」菜单。
   - `hotkey-watch.ps1`：使用 Windows 标准 `RegisterHotKey` 接口，仅在 Premiere Pro 为前台窗口时接管当前同步到的「在项目中显示 / Reveal In Project」快捷键以直接反查定位时间线素材（切离 Pr 自动释放、关闭或异常退出 Pr 时自动退出；可在底栏「快捷定位」一键关闭）。
   - 上述脚本调用系统内置 `powershell.exe` 与 .NET/Win32 API，部分杀毒软件可能会出现启发式误报，所有脚本均为明文源码，可直接检查后放心使用。
-- **FFmpeg 说明**：本 Git 源码仓库及轻量发布包（`PrBinView-v1.3.11.zip`）不包含任何 FFmpeg 二进制文件；可选的 Windows 便携发布包（`PrBinView-v1.3.11-win-ffmpeg.zip`）在 `PrBinView/bin/` 中附带了来自 [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) 官方构建的 `ffmpeg.exe`（9.1 essentials，遵循 GPL-3.0 协议，并随包附带对应 `FFMPEG-LICENSE.txt`）。
+- **FFmpeg 说明**：本 Git 源码仓库及轻量发布包（`PrBinView-v1.3.12.zip`）不包含任何 FFmpeg 二进制文件；可选的 Windows 便携发布包（`PrBinView-v1.3.12-win-ffmpeg.zip`）在 `PrBinView/bin/` 中附带了来自 [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) 官方构建的 `ffmpeg.exe`（9.1 essentials，遵循 GPL-3.0 协议，并随包附带对应 `FFMPEG-LICENSE.txt`）。
 
 ## 开源协议与免责声明
 

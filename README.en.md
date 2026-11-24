@@ -2,7 +2,7 @@
   <a href="./README.md">简体中文</a> | <strong>English</strong>
 </p>
 
-# PrBinView · Fast Single-Panel Media Bin Previewer for Premiere Pro (v1.3.11)
+# PrBinView · Fast Single-Panel Media Bin Previewer for Premiere Pro (v1.3.12)
 
 A pure **CEP 12 single-panel** media bin thumbnail preview extension for **Adobe Premiere Pro (2022–2027, primarily tested on Windows / basic macOS support)**.
 
@@ -46,8 +46,8 @@ Built to improve the browsing experience of Premiere Pro's built-in Project pane
 
 ### Windows (Recommended: One-Click Installer, No Node.js Required)
 1. Download and fully extract a release package from [Releases](https://github.com/CG-Bai/PrBinView/releases):
-   - **Windows Portable Edition (Recommended)**: `PrBinView-v1.3.11-win-ffmpeg.zip` (bundles a single `ffmpeg.exe` for out-of-the-box MXF / ProRes / PSD / EXR previews)
-   - **Lightweight Edition**: `PrBinView-v1.3.11.zip` (~155 KB, ideal if FFmpeg is already in your `PATH` or you only preview standard MP4 / MOV / Image / AI files)
+   - **Windows Portable Edition (Recommended)**: `PrBinView-v1.3.12-win-ffmpeg.zip` (bundles a single `ffmpeg.exe` for out-of-the-box MXF / ProRes / PSD / EXR previews)
+   - **Lightweight Edition**: `PrBinView-v1.3.12.zip` (~158 KB, ideal if FFmpeg is already in your `PATH` or you only preview standard MP4 / MOV / Image / AI files)
 2. Double-click **`一键安装_Windows.cmd`** (automatically copies the extension and enables Adobe CEP `PlayerDebugMode=1`).
 3. **Restart Premiere Pro**, then open **Window → Extensions → PrBinView · 媒体池预览**.
 
@@ -104,7 +104,7 @@ reg delete HKCU\Software\Adobe\CSXS.12 /v PlayerDebugMode /f
   - `pr-menu.ps1`: Uses Win32 Menu / UI Automation to trigger Premiere Pro's native **Link Media** and **Export Media** menus.
   - `hotkey-watch.ps1`: Uses the standard Windows `RegisterHotKey` API to capture your synced Premiere Pro "Reveal In Project" shortcut only while Premiere Pro is the foreground window so Timeline clips reveal directly inside PrBinView without opening the native Project panel (releases immediately on focus loss, exits automatically when Premiere Pro closes, toggleable anytime via "Quick Reveal" in the status bar).
   - Because these scripts invoke `powershell.exe` and .NET/Win32 APIs, some antivirus tools may raise heuristic false positives. All helper scripts are plain text and fully inspectable.
-- **FFmpeg Notice**: This Git source repository and the lightweight release (`PrBinView-v1.3.11.zip`) do not contain FFmpeg binaries. The optional Windows Portable release (`PrBinView-v1.3.11-win-ffmpeg.zip`) bundles a single `ffmpeg.exe` (9.1 essentials from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), licensed under GPL-3.0, with `FFMPEG-LICENSE.txt` included in `PrBinView/bin/`).
+- **FFmpeg Notice**: This Git source repository and the lightweight release (`PrBinView-v1.3.12.zip`) do not contain FFmpeg binaries. The optional Windows Portable release (`PrBinView-v1.3.12-win-ffmpeg.zip`) bundles a single `ffmpeg.exe` (9.1 essentials from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), licensed under GPL-3.0, with `FFMPEG-LICENSE.txt` included in `PrBinView/bin/`).
 
 ## License & Disclaimer
 

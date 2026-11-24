@@ -279,6 +279,7 @@ test('Premiere label prefs parser auto-detects BGR/ARGB/RGBA/Hex colors, parses 
     '<BE.Prefs.LabelNames.1 Type="4">Iris</BE.Prefs.LabelNames.1>' +
     '<BE.Prefs.LabelNames.6 Type="4">特效镜头</BE.Prefs.LabelNames.6>' +
     '<BE.Prefs.LabelColorPreset Type="4">StudioPreset</BE.Prefs.LabelColorPreset>' +
+    '<BE.Prefs.LabelDefaults.Bin Type="1">11</BE.Prefs.LabelDefaults.Bin>' +
     '</Properties>';
   var p1 = U.parsePremierePrefsLabels(bgrXml);
   assert.equal(p1.colors[1], '#729acc');
@@ -287,6 +288,10 @@ test('Premiere label prefs parser auto-detects BGR/ARGB/RGBA/Hex colors, parses 
   assert.equal(p1.names[1], 'Iris');
   assert.equal(p1.names[6], '特效镜头');
   assert.equal(p1.presetName, 'StudioPreset');
+  assert.equal(p1.defaultBinLabel, 11);
+
+  var namedBinXml = '<Properties><BE.Prefs.DefaultLabels.Bin>芒果黄</BE.Prefs.DefaultLabels.Bin></Properties>';
+  assert.equal(U.parsePremierePrefsLabels(namedBinXml).defaultBinLabel, 7);
 
   /* 2. 32-bit ARGB unsigned integer format (0xFFRRGGBB) */
   var argbList = U.resolveLabelColorList({

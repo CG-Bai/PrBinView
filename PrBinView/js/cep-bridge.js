@@ -145,6 +145,7 @@
     var hostLoaded = false;
     var currentRevealShortcut = Object.assign({}, U.DEFAULT_REVEAL_SHORTCUT);
     var lastHostEnv = { appVersion: '', docsPath: '' };
+    var cachedDefaultBinLabel = -1;
 
     /* Tell Premiere Pro CEP to route arrow keys & panel shortcuts to PrBinView while our panel has focus */
     function registerPanelKeyInterest() {
@@ -892,7 +893,7 @@
       var bestPrefsPath = prof.bestPrefsPath;
       var bestProfileDir = prof.bestProfileDir;
 
-      var prefsParsed = { colors: new Array(16).fill(''), names: new Array(16).fill(''), presetName: '' };
+      var prefsParsed = { colors: new Array(16).fill(''), names: new Array(16).fill(''), presetName: '', defaultBinLabel: -1 };
       if (bestPrefsPath) {
         try {
           var xml = fsMod.readFileSync(bestPrefsPath, 'utf8');
@@ -902,7 +903,7 @@
 
       /* Optional .prlabelpreset lookup when an active custom preset name is configured */
       var activePreset = (hostInfo && hostInfo.presetName) || prefsParsed.presetName || '';
-      var presetParsed = { colors: new Array(16).fill(''), names: new Array(16).fill('') };
+      var presetParsed = { colors: new Array(16).fill(''), names: new Array(16).fill(''), defaultBinLabel: -1 };
       if (activePreset) {
         var presetDirs = [];
         for (var k = 0; k < docsCandidates.length; k++) {
@@ -930,11 +931,16 @@
         mergedNames[i] = prefsParsed.names[i] || presetParsed.names[i] || '';
       }
 
+      var diskBinLabel = (typeof prefsParsed.defaultBinLabel === 'number' && prefsParsed.defaultBinLabel >= 0)
+        ? prefsParsed.defaultBinLabel
+        : ((typeof presetParsed.defaultBinLabel === 'number' && presetParsed.defaultBinLabel >= 0) ? presetParsed.defaultBinLabel : -1);
+
       return {
         colors: mergedColors,
         names: mergedNames,
         presetName: activePreset,
-        prefsPath: bestPrefsPath
+        prefsPath: bestPrefsPath,
+        defaultBinLabel: diskBinLabel
       };
     }
 
@@ -950,6 +956,11 @@
         if (hostInfo.docsPath) lastHostEnv.docsPath = String(hostInfo.docsPath);
       }
       var disk = readPremiereLabelPrefsFromDisk(hostInfo);
+      var liveBinLabel = (hostInfo && typeof hostInfo.defaultBinLabel === 'number' && hostInfo.defaultBinLabel >= 0)
+        ? hostInfo.defaultBinLabel
+        : -1;
+      cachedDefaultBinLabel = liveBinLabel >= 0 ? liveBinLabel : (disk.defaultBinLabel >= 0 ? disk.defaultBinLabel : -1);
+
       var liveColors = (hostInfo && Array.isArray(hostInfo.colors))
         ? U.resolveLabelColorList(hostInfo.colors)
         : new Array(16).fill('');
@@ -967,7 +978,8 @@
         colors: finalColors,
         names: finalNames,
         presetName: disk.presetName || '',
-        prefsPath: disk.prefsPath || ''
+        prefsPath: disk.prefsPath || '',
+        defaultBinLabel: cachedDefaultBinLabel
       };
     }
 
@@ -991,9 +1003,11 @@
       openItem: function (id, play) { return call('openItem', { id: id, play: !!play }); },
       stopSourceMonitor: function () { return call('stopSourceMonitor'); },
       insertToTimeline: function (ids, mode) { return call('insertToTimeline', { ids: ids, mode: mode || 'insert' }); },
-      createBin: function (parentId, name) { return call('createBin', { parentId: parentId, name: name }); },
+      createBin: function (parentId, name) {
+        return call('createBin', { parentId: parentId, name: name, defaultBinLabel: cachedDefaultBinLabel });
+      },
       newBinFromSelection: function (ids, parentId, name) {
-        return call('newBinFromSelection', { ids: ids, parentId: parentId, name: name });
+        return call('newBinFromSelection', { ids: ids, parentId: parentId, name: name, defaultBinLabel: cachedDefaultBinLabel });
       },
       renameItem: function (id, name) { return call('renameItem', { id: id, name: name }); },
       moveItems: function (ids, targetBinId) { return call('moveItems', { ids: ids, targetBinId: targetBinId }); },
@@ -1013,14 +1027,14 @@
         if (!dirs.length) return { imported: false, importedFiles: 0, createdBins: 0 };
         var plan = scanExternalPaths(fsMod, pathMod, dirs);
         if (!plan.files.length && !plan.folders.length) return { imported: false, importedFiles: 0, createdBins: 0 };
-        return call('importStructure', { targetBinId: targetBinId, files: plan.files, folders: plan.folders });
+        return call('importStructure', { targetBinId: targetBinId, files: plan.files, folders: plan.folders, defaultBinLabel: cachedDefaultBinLabel });
       },
       importExternalPaths: async function (targetBinId, rawPaths) {
         var plan = scanExternalPaths(fsMod, pathMod, rawPaths);
         if (!plan.files.length && !plan.folders.length) {
           return { imported: false, importedFiles: 0, createdBins: 0 };
         }
-        return call('importStructure', { targetBinId: targetBinId, files: plan.files, folders: plan.folders });
+        return call('importStructure', { targetBinId: targetBinId, files: plan.files, folders: plan.folders, defaultBinLabel: cachedDefaultBinLabel });
       },
       setColorLabel: function (ids, labelIndex) { return call('setColorLabel', { ids: ids, labelIndex: labelIndex }); },
       clearInOut: function (ids) { return call('clearInOut', { ids: ids }); },

@@ -445,13 +445,37 @@
     return out;
   }
 
+  function resolveLabelIndexByValue(rawVal, namesList) {
+    if (rawVal === null || rawVal === undefined) return -1;
+    var s = String(rawVal).trim();
+    if (!s) return -1;
+    if (/^\d+$/.test(s)) {
+      var n = Number(s);
+      return (Number.isInteger(n) && n >= 0 && n < 16) ? n : -1;
+    }
+    var low = s.toLowerCase();
+    if (Array.isArray(namesList)) {
+      for (var i = 0; i < namesList.length && i < 16; i++) {
+        if (namesList[i] && String(namesList[i]).trim().toLowerCase() === low) return i;
+      }
+    }
+    for (var j = 0; j < BUILTIN_LABEL_ALIASES.length && j < 16; j++) {
+      var aliases = BUILTIN_LABEL_ALIASES[j];
+      for (var a = 0; a < aliases.length; a++) {
+        if (aliases[a] === low) return j;
+      }
+    }
+    return -1;
+  }
+
   function parsePremierePrefsLabels(xmlText) {
     var rawColors = new Array(16);
     var names = new Array(16);
     for (var i = 0; i < 16; i++) { rawColors[i] = ''; names[i] = ''; }
     var presetName = '';
+    var defaultBinLabel = -1;
     var text = String(xmlText || '');
-    if (!text) return { colors: rawColors, names: names, presetName: '' };
+    if (!text) return { colors: rawColors, names: names, presetName: '', defaultBinLabel: -1 };
 
     var m;
     var reColor = /<BE\.Prefs\.LabelColors?\.(\d+)(?:\s[^>]*)?>([^<]+)<\/BE\.Prefs\.LabelColors?\.\1>/gi;
@@ -475,10 +499,20 @@
       presetName = decodeXmlText(mPreset[1]).trim();
     }
 
+    var reBinDefault = /<([A-Za-z0-9_.:-]*(?:Label[A-Za-z0-9_.:-]*Bin|Bin[A-Za-z0-9_.:-]*Label)[A-Za-z0-9_.:-]*)(?:\s[^>]*)?>([^<]+)<\/\1>/gi;
+    while ((m = reBinDefault.exec(text)) !== null) {
+      var parsedIdx = resolveLabelIndexByValue(decodeXmlText(m[2]), names);
+      if (parsedIdx >= 0) {
+        defaultBinLabel = parsedIdx;
+        break;
+      }
+    }
+
     return {
       colors: resolveLabelColorList(rawColors),
       names: names,
-      presetName: presetName
+      presetName: presetName,
+      defaultBinLabel: defaultBinLabel
     };
   }
 
@@ -487,11 +521,12 @@
     var rawColors = new Array(16);
     var names = new Array(16);
     for (var i = 0; i < 16; i++) { rawColors[i] = ''; names[i] = ''; }
-    if (!raw) return { colors: rawColors, names: names };
+    if (!raw) return { colors: rawColors, names: names, defaultBinLabel: -1 };
 
     if (raw.charAt(0) === '{' || raw.charAt(0) === '[') {
       try {
         var obj = JSON.parse(raw);
+        var defaultBinLabel = -1;
         var list = Array.isArray(obj) ? obj
           : (Array.isArray(obj.labels) ? obj.labels
           : (Array.isArray(obj.labelColors) ? obj.labelColors
@@ -517,11 +552,21 @@
               if (nmVal) names[slot] = String(nmVal).trim();
             }
           }
-          return { colors: resolveLabelColorList(rawColors), names: names };
+          if (obj && typeof obj === 'object') {
+            var dObj = obj.defaults || obj.labelDefaults || obj.Defaults || null;
+            if (dObj && typeof dObj === 'object') {
+              var bVal = dObj.bin !== undefined ? dObj.bin : (dObj.Bin !== undefined ? dObj.Bin : undefined);
+              defaultBinLabel = resolveLabelIndexByValue(bVal, names);
+            }
+          }
+          return { colors: resolveLabelColorList(rawColors), names: names, defaultBinLabel: defaultBinLabel };
         }
         /* Keyed object format: { "0": { ... } } or { "BE.Prefs.LabelColors.0": ... } */
         if (obj && typeof obj === 'object') {
           Object.keys(obj).forEach(function (k) {
+            if (/(?:label.*bin|bin.*label)/i.test(k) && defaultBinLabel < 0) {
+              defaultBinLabel = resolveLabelIndexByValue(obj[k], names);
+            }
             var km = k.match(/(\d+)$/);
             if (!km) return;
             var slotIdx = Number(km[1]);
@@ -536,13 +581,13 @@
               rawColors[slotIdx] = v;
             }
           });
-          return { colors: resolveLabelColorList(rawColors), names: names };
+          return { colors: resolveLabelColorList(rawColors), names: names, defaultBinLabel: defaultBinLabel };
         }
       } catch (_) {}
     }
 
     var xmlParsed = parsePremierePrefsLabels(raw);
-    return { colors: xmlParsed.colors, names: xmlParsed.names };
+    return { colors: xmlParsed.colors, names: xmlParsed.names, defaultBinLabel: xmlParsed.defaultBinLabel };
   }
 
   function getLabelPaletteSig() {

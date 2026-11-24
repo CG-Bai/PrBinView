@@ -464,12 +464,23 @@ test('jsx/host.jsx importStructure recursively creates bins and imports nested f
   var assetsBin = tree.data.nodes.find(function (n) { return n.name === '002-Assets' && n.isBin; });
   assert.ok(assetsBin);
   assert.equal(assetsBin.pid, '2');
+  assert.equal(assetsBin.label, 7); /* Applies Premiere default Bin label (Mango=7) instead of leaving at slot 0 */
   var subBin = tree.data.nodes.find(function (n) { return n.name === 'SubClips' && n.isBin; });
   assert.ok(subBin);
   assert.equal(subBin.pid, assetsBin.id);
+  assert.equal(subBin.label, 7);
   var extra = tree.data.nodes.find(function (n) { return n.name === 'extra.mov'; });
   assert.ok(extra);
   assert.equal(extra.pid, subBin.id);
+
+  /* Explicit defaultBinLabel from Prefs overrides fallback 7 (including explicit 0) */
+  var customBin = JSON.parse(H.createBin({ parentId: '2', name: 'CustomBin', defaultBinLabel: 11 }));
+  assert.equal(customBin.ok, true);
+  var zeroBin = JSON.parse(H.createBin({ parentId: '2', name: 'ZeroBin', defaultBinLabel: 0 }));
+  assert.equal(zeroBin.ok, true);
+  var tree2 = JSON.parse(H.getProjectTree());
+  assert.equal(tree2.data.nodes.find(function (n) { return n.id === customBin.data.id; }).label, 11);
+  assert.equal(tree2.data.nodes.find(function (n) { return n.id === zeroBin.data.id; }).label, 0);
 });
 
 test('jsx/host.jsx pollTick detects when startup offline clips finish mounting online', function () {

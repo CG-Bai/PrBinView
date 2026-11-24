@@ -862,6 +862,8 @@ if (typeof PrBinViewHost === 'undefined') {
                 if (!parent || !isBinItem(parent)) parent = app.project.rootItem;
                 var created = parent.createBin(name);
                 if (!created) return fail('Premiere 未能创建素材箱');
+                var explicitBinLabel = (payload && typeof payload.defaultBinLabel === 'number') ? payload.defaultBinLabel : -1;
+                applyDefaultBinLabel(created, explicitBinLabel);
                 _dirtySeq += 1;
                 return ok({ id: String(created.nodeId || ''), name: String(created.name || name) });
             } catch (err) {
@@ -1059,6 +1061,7 @@ if (typeof PrBinViewHost === 'undefined') {
                 if (!target || !isBinItem(target)) target = app.project.rootItem;
                 var topFiles = (payload && isArray(payload.files)) ? payload.files : [];
                 var folders = (payload && isArray(payload.folders)) ? payload.folders : [];
+                var explicitBinLabel = (payload && typeof payload.defaultBinLabel === 'number') ? payload.defaultBinLabel : -1;
 
                 var importedFiles = 0;
                 var createdBins = 0;
@@ -1074,6 +1077,7 @@ if (typeof PrBinViewHost === 'undefined') {
                     var bin = parentBin.createBin(String(folderSpec.name));
                     if (!bin) bin = parentBin;
                     else {
+                        applyDefaultBinLabel(bin, explicitBinLabel);
                         createdBins += 1;
                         if (!firstBinId) {
                             try { firstBinId = String(bin.nodeId || ''); } catch (eId) {}
@@ -1894,6 +1898,8 @@ if (typeof PrBinViewHost === 'undefined') {
                 if (!parent || !isBinItem(parent)) parent = app.project.rootItem;
                 var created = parent.createBin(name);
                 if (!created) return fail('Premiere 未能创建素材箱');
+                var explicitBinLabel = (payload && typeof payload.defaultBinLabel === 'number') ? payload.defaultBinLabel : -1;
+                applyDefaultBinLabel(created, explicitBinLabel);
                 var createdId = String(created.nodeId || '');
                 var moved = 0;
                 var i, item;
@@ -2085,6 +2091,48 @@ if (typeof PrBinViewHost === 'undefined') {
             }
         }
 
+        function readDefaultBinLabelIndex() {
+            var keys = [
+                'BE.Prefs.LabelDefaults.Bin',
+                'BE.Prefs.DefaultLabels.Bin',
+                'BE.Prefs.LabelDefault.Bin',
+                'BE.Prefs.DefaultBinLabel',
+                'BE.Prefs.BinDefaultLabel',
+                'BE.Prefs.Labels.Default.Bin',
+                'FE.Prefs.LabelDefaults.Bin'
+            ];
+            var i, raw, n;
+            for (i = 0; i < keys.length; i++) {
+                raw = readAppProp(keys[i]);
+                if (!raw) continue;
+                n = Number(raw);
+                if (isFinite(n) && Math.floor(n) === n && n >= 0 && n <= 15) {
+                    return n;
+                }
+            }
+            return -1;
+        }
+
+        function applyDefaultBinLabel(bin, explicitIdx) {
+            if (!bin || typeof bin.setColorLabel !== 'function') return;
+            try {
+                /* Premiere Pro ExtendScript createBin() initializes bins to label 0 (1st color) when the native
+                   Project panel is closed, only applying Label Defaults -> Bin once the Project panel opens. */
+                var cur = safeColorLabel(bin);
+                if (cur !== 0) return;
+                var target = -1;
+                if (typeof explicitIdx === 'number' && isFinite(explicitIdx) && explicitIdx >= 0 && explicitIdx <= 15) {
+                    target = Math.floor(explicitIdx);
+                } else {
+                    target = readDefaultBinLabelIndex();
+                }
+                if (target < 0) target = 7; /* Premiere Pro factory default for Bins: Mango (index 7) */
+                if (target !== 0) {
+                    bin.setColorLabel(target);
+                }
+            } catch (eBinLbl) {}
+        }
+
         function getLabelPrefs() {
             try {
                 var names = [];
@@ -2123,6 +2171,7 @@ if (typeof PrBinViewHost === 'undefined') {
                     names: names,
                     colors: colors,
                     presetName: presetName,
+                    defaultBinLabel: readDefaultBinLabelIndex(),
                     appVersion: appVer,
                     docsPath: docsPath
                 });
